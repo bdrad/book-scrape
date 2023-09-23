@@ -1,0 +1,9 @@
+layoutparser
+torchvision
+ipyfilechooser
+ipywidgets
+ipykernel
+pymupdf
+nltk
+tqdm
+git+https://github.com/facebookresearch/detectron2.git@ff53992b1985b63bd3262b5a36167098e3dada02
