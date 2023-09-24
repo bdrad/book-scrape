@@ -6,7 +6,9 @@ Motivated by _[Textbooks Are All You Need](https://arxiv.org/abs/2306.11644)_.
 
 ## todos
 
-- [ ] Use dependency manager; generate `requirements.txt`
+- [x] Use dependency manager; generate `requirements.txt`
+- [ ] Better logging
+- [ ] 
 
 
 ### Scraping
