@@ -2,3 +2,4 @@
 scrape/
 scrape_out/
 ignore/
+*.pyc

@@ -1,0 +1,26 @@
+﻿books:
+  "Chest - Elicker - HRCT of the Lungs 2e.pdf":
+    chapters: [49, 62, 83, 104, 116, 129, 150, 166, 174, 199, 212, 221, 233, 247, 265, 274, 283, 296, 305]
+  "Chest - Felson - Principles of Chest Roentgenology (4e).pdf":
+    chapters: [8,29,46,68,84,104,122,136,160,182,202,226]
+  "Chest - Webb - Fundamentals of Body CT (4e).pdf":
+    chapters: [6,12,26,49,73,94,134,151,176,188,214,225,241,250,278,290,323,340,349,363,370,]
+  "General - Weissleder - Primer of Diagnostic Imaging (5e).pdf":
+    chapters: [13, 84, 127, 216, 280, 365, 439, 474, 521, 545, 587, 649, 692, 702, 759]
+  "General - Mandell - Core Radiology (1e).pdf":
+    chapters: [12, 98, 168, 212, 357, 475, 564, 603, 669, 705, 752, 849, 874]
+  "General - Brant _ Helms - Fundamentals of Diagnostic Radiology (4e).pdf":
+    chapters: [12, 38, 334, 546, 578, 628, 680, 806, 868, 990, 1138, 1238, 1418]
+tokens:
+  label_end: "[LABEL_END]"
+  startup: "[STARTUP]"
+  fontbreak: "[FONTBREAK]"
+  nofont: "[NOFONT]"
+cleaning:
+  hyphen:
+    extras: ['Three-dimensional', 'Multiple-detector', 'Two-and', 'Multiple-detector', 'four-detector-row','Post-expiratory','soft-tissue','two-or','arrowhead-shaped','fat-filled','short-axis','out-flow','mirror-image','left-sided','Contrast-enhanced','post-traumatic','x-rays','medullary-based','MDCT-guided','volume-rendered','volume-rendering','contrast-opacified','thick-walled','thin-walled','bolus-contrast-enhanced','Contrast-filled','smooth-outlined','sheet-like','small-bowel','Colon-wall','tumor-involved','Early-stage','Closed-loop','B-cell','Mucosa-associated','three-layer','region-of-interest','lipid-rich','Lipid-poor', 'non-Hodgkin','fat-containing','bone-marrow','Thin-section','Axial-plane','sagittal-plane','well-hydrated','end-stage','image-guided','fluid-filled','non-neoplastic','hairline-thin','well-marginated','Lymphad-enectomy','Nephron-sparing','mid-T-12','CT-KUB','CT-IVP','water-density','bunch-of-grapes','main-duct','branch-duct','duct-obstructing','AIDS-related','Hormone-producing','ultrasound-guided','Long-segment','upper-quadrant','IV-A','IV-B','tech-netium-99m-labeled','technetium-99m','delayed-phase','Well-differentiated','venous-phase','arterial-phase','arterial-phase','nodule-in-nodule','False-positive','comma-shaped','2*-weighted']
+    prefixs: ['high', 'higher', 'highest',]
+#               'low', 'lower', 'lowest',
+#               'max', 'maximum',
+#               'min', 'minimum']
+    suffixs: ['mm', 'cm', 'm']

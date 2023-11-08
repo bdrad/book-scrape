@@ -6,9 +6,11 @@ Motivated by _[Textbooks Are All You Need](https://arxiv.org/abs/2306.11644)_.
 
 ## todos
 
-- [x] Use dependency manager; generate `requirements.txt`
-- [ ] Better logging
-- [ ] 
+- [x] Generate `requirements.txt`
+  - [ ] Use dependency manager -- setting up detectron2 is a pain
+- [ ] Implement logging
+  - Log what is printed now (text box collissions, dehyphen fails, etc.)
+  - Save to actual file -- see comparison of log events after code updates
 
 
 ### Scraping
