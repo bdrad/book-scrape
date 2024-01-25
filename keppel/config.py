@@ -29,14 +29,19 @@ class Config:
 class BookConfig(Config):
     def __init__(self, pdf_file: Path, **kwargs):
         super().__init__(**kwargs)
-        data = self.data["books"]
-
         self.fname = Path(pdf_file).name
-        if self.fname not in data:
+
+        data_books = self.data["books"]
+        if self.fname not in data_books:
             raise ValueError(f"PDF file {self.fname} not found in config file {self.cfg_file}")
-        if "chapters" not in data[self.fname]:
+        if "chapters" not in data_books[self.fname]:
             raise ValueError(f"Chapters not found in config file {self.cfg_file}")
-        self.chapters = data[self.fname]["chapters"]
+
+        book_data = data_books[self.fname]
+        base_data = self.data["base"]
+        self.data = {**base_data, **book_data}
+
+        self.chapters = book_data["chapters"]
 
     def chapter_range(self):
         return list(zip(self.chapters, self.chapters[1:]))
@@ -47,6 +52,13 @@ class BookConfig(Config):
             if (start or float("-inf")) <= pg_num < (end or float("inf")):
                 return i
         return None
+
+    def get_font(self, kind):
+        assert kind in FONT_KINDS
+        return self.data["books"][self.fname]["fonts"][kind]
+
+    def get_fonts(self):
+        return [self.get_font(kind) for kind in FONT_KINDS]
 
     def write_font(self, kind, font):
         assert kind in FONT_KINDS

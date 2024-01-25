@@ -6,6 +6,7 @@ from typing import Dict, List, Set, Tuple
 
 import fire
 import layoutparser as lp
+import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import pdfplumber
 from layoutparser.elements import Interval, Layout, TextBlock
@@ -15,7 +16,7 @@ from tqdm import tqdm
 
 from keppel.cleaning import clean_fontstr
 from keppel.config import BookConfig
-from keppel.tracker import JoinTracker, PreTracker, EarlyExitException
+from keppel.tracker import EarlyExitException, JoinTracker, PreTracker
 from keppel.utils import round_to_nearest_k
 
 DATA = Path("scrape")
@@ -50,24 +51,12 @@ def extract_fonts(pg: Page, round_k=4) -> list[list[str, float], int]:
 
 
 class Parser(object):
-    def __init__(
-        self,
-        fname: str,
-        pad=0.010,
-        # pad=0.0075,
-        # pad=0.006,
-        resolution=150,  # 123
-        laparams=dict(detect_vertical=False),
-        # laparams=dict(detect_vertical=False, word_margin=0.08)    # this doesn't cause any difference?
-        **kwargs,
-    ) -> None:
-        assert 0 <= pad < 1
-
+    def __init__(self, fname: str) -> None:
         self.fname = Path(fname)
-        self.pad = pad
-        self.resolution = resolution
-        self.laparams = laparams
+        assert self.fname.is_file(), f"File {fname} not found"
 
+        laparams = dict(detect_vertical=False)
+        # laparams=dict(detect_vertical=False, word_margin=0.08)    # this doesn't cause any difference?
         self.pdf = pdfplumber.open(fname, laparams=laparams).pages
 
         self.outdir = Path("scrape_out")
@@ -81,28 +70,50 @@ class Parser(object):
             img_dir.mkdir(exist_ok=True)
 
         self.cfg: BookConfig = BookConfig(fname)
+        cfg_model = self.cfg.data["detectron"]
+
+        self.pad = cfg_model["box_pad"]
+        assert 0 <= self.pad < 1
+        # pad=0.010,
+        # pad=0.0075,
+        # pad=0.006,
+
+        self.resolution = cfg_model["resolution"]
+
+        # https://layout-parser.readthedocs.io/en/latest/notes/modelzoo.html
+        self._model_name, _model_co = str(cfg_model["model_name"]), float(cfg_model["score_co"])
+        assert "PubLayNet" in self._model_name
+        self._label_map = {0: "Text", 1: "Title", 2: "List", 3: "Table", 4: "Figure"}
+        assert 0 <= _model_co <= 1
+        print(f"Loading model {self._model_name} with score cutoff {_model_co}")
 
         self.model = lp.models.Detectron2LayoutModel(
             # 'lp://PubLayNet/faster_rcnn_R_50_FPN_3x/config',
-            "lp://PubLayNet/mask_rcnn_X_101_32x8d_FPN_3x/config",
+            # "lp://PubLayNet/mask_rcnn_X_101_32x8d_FPN_3x/config",
+            self._model_name,
             # extra_config=["MODEL.ROI_HEADS.SCORE_THRESH_TEST", 0.9],
             # extra_config=["MODEL.ROI_HEADS.SCORE_THRESH_TEST", 0.77],
             # extra_config=["MODEL.ROI_HEADS.SCORE_THRESH_TEST", 0.72],
-            extra_config=["MODEL.ROI_HEADS.SCORE_THRESH_TEST", 0.7],
+            # extra_config=["MODEL.ROI_HEADS.SCORE_THRESH_TEST", 0.7],
             # extra_config=["MODEL.ROI_HEADS.SCORE_THRESH_TEST", 0.65],
-            label_map={0: "Text", 1: "Title", 2: "List", 3: "Table", 4: "Figure"},
+            extra_config=["MODEL.ROI_HEADS.SCORE_THRESH_TEST", _model_co],
+            label_map=self._label_map,
         )
 
-    def _get_labels(self, im, return_split_idx=False, pad=0.05) -> List[Layout]:
-        # TODO ensure that the ordering here is correct -- notably, Webb Ch1 Pg1 has text prior to title (wasn't always like this, I thought..)
-        # could possible use overlapping text to determine ordering
+    # TODO ensure that the ordering here is correct
+    # * notably, Webb Ch1 Pg1 has text prior to title (wasn't always like this, I thought..)
+    # * could possible use overlapping text to determine ordering
+
+    # TODO search for missing text
+    # * if last label figure and current is text
+
+    def _get_labels(self, im, return_split_idx=False, pad=0.05, model=None) -> List[Layout]:
         if type(im) is PageImage:
             im = im.annotated
 
         w, h = im.size
 
-        layout = self.model.detect(im)  # Detect the layout of the input image
-
+        layout = (model or self.model).detect(im)  # Detect the layout of the input image
         text_blocks: Layout = lp.Layout([b for b in layout if b.type in ("Text", "Title")])
         nontext_blocks: Layout = lp.Layout([b for b in layout if b.type in ("Figure", "Table")])
 
@@ -133,21 +144,65 @@ class Parser(object):
         for i, b in enumerate(blocks):
             for c in blocks[:i] + blocks[i + 1 :]:  # get all but b
                 if b.is_in(c, center=True):
+                    # later on, parent used as idicator to skip
                     b = b.set(parent=c.id)
 
-        return blocks + ([len(left_blocks)] if return_split_idx else [])
+        if return_split_idx:
+            return blocks, len(left_blocks)
+        return blocks
 
-    def extract_raw(self, extract_imgs=True):
+    def determine_co(self, co_base: float = None, co_delta: float = 0.02, co_n: int = 5):
+        pages = range(44, 48)  # todo get random pages (use seed)
+
+        co_base = co_base or self.cfg["detectron"]["score_co"]
+        cutoffs = [
+            v for i in range(-co_n // 2, co_n // 2) if (0 <= (v := co_base + i * co_delta) <= 1)
+        ]
+        n = len(cutoffs)
+
+        imgs = [self.pdf[i].to_image(resolution=self.resolution).annotated for i in pages]
+        results = []
+
+        for co in tqdm(cutoffs):
+            tmp_model = lp.models.Detectron2LayoutModel(
+                self._model_name,
+                extra_config=["MODEL.ROI_HEADS.SCORE_THRESH_TEST", co],
+                label_map=self._label_map,
+            )
+            outs = []
+            for im in imgs:
+                sorted_boxes = parser._get_labels(im, model=tmp_model)
+                o = lp.draw_box(im, sorted_boxes, box_width=3, show_element_id=True)
+                outs.append(o)
+            del tmp_model
+            results.append(outs)
+
+        # plt.switch_backend("TkAgg")
+        w, h = imgs[0].size
+        w, h = [4 * k / w for k in (w, h)]
+        fig, axs = plt.subplots(len(pages), n, figsize=(n * w, len(pages) * h))
+        fig.tight_layout(pad=0.0)
+        # gs = gridspec.GridSpec(len(pages), n, figure=fig)
+        # gs.update(wspace=0.025, hspace=0.025)
+        for i, o in enumerate(outs):
+            for j, (co, outs) in enumerate(zip(cutoffs, results)):
+                axs[i, j].imshow(o)
+                axs[i, j].axis("off")
+                if i == 0:
+                    axs[i, j].set_title(f"co={co:.3f}")
+        # plt.show()
+        plt.subplots_adjust(wspace=0, hspace=0)
+        fig.savefig(self.outdir / "co.png", bbox_inches="tight", dpi=300, pad_inches=0)
+
+    def extract_raw(self, extract_figs=True):
         chapters = self.cfg.chapter_range()
         for ch_i, ch in enumerate(chapters, 1):
             print(f"Processing ch{ch_i}")
             start, end = ch
-            pages = self.pdf[start:end]  # todo make fctn
-            # tracker = ChapterTracker()
+            pages: List[Page] = self.pdf[start:end]  # todo make fctn
             pretracker = PreTracker()
 
-            progress: List[Page] = tqdm(pages)
-            for pg in progress:
+            for pg in tqdm(pages):
                 pg_num = pg.page_number
                 im = pg.to_image(resolution=self.resolution).annotated
                 w_im, h_im = im.size
@@ -168,35 +223,54 @@ class Parser(object):
 
                     pad_x, pad_y = self.pad * w_im, self.pad * h_im
                     label = label.pad(left=pad_x, right=pad_x, top=pad_y, bottom=pad_y)
-                    x0, y0, x1, y1 = label.coordinates
+                    x0, y0, x1, y1 = label.coordinates  # left, top, right, bottom
                     x0, x1 = x0 * w_ratio, x1 * w_ratio
                     y0, y1 = y0 * h_ratio, y1 * h_ratio
 
-                    if extract_imgs and kind == "Figure":
+                    if extract_figs and kind == "Figure":
                         pg_crop = pg.crop((x0, y0, x1, y1), strict=False)
                         img = pg_crop.to_image(resolution=self.resolution)
-                        img.save(self.rawdir / f"imgs/{ch_i}_{pg_num}_{label_num}.png")
+                        out_dir = Path(self.rawdir / f"imgs/{ch_i}")
+                        out_dir.mkdir(exist_ok=True)
+                        img.save(out_dir / f"{pg_num}-{label_num}.png")
 
                     area = pg.within_bbox((x0, y0, x1, y1), strict=False)
                     fonts = extract_fonts(area)
                     txt = area.extract_text()
 
-                    if last_entry and last_entry.label_type == "Figure" and kind in ("Text", "Title") and y1 - last_y1 < 0.1*h_im:
-                        print(f"%%% str block {label.id} is below fig {last_entry.labels[0]} -- skipping")
-                        continue
+                    if (
+                        last_entry
+                        and last_entry.label_type == "Figure"
+                        and kind == "Text"
+                        and y0 - last_y1 < 0.15 * h_im
+                        and (txt.startswith("Fig") or txt.startswith("FIG"))
+                    ):
+                        last_id = f"{last_entry.pgs[0]}-{last_entry.labels[0]}"
+                        kind = "FigureCaption-" + last_id
+                        if extract_figs:
+                            out_dir = Path(self.rawdir / f"imgs/{ch_i}")
+                            out_dir.mkdir(exist_ok=True)
+                            with open(out_dir / f"{last_id}.txt", "w") as f:
+                                f.write(txt)
 
                     last_entry = pretracker.add_entry(pg_num, kind, label_num, txt, fonts)
                     last_y1 = y1
 
             pretracker.to_file(self.rawdir / f"{ch_i}.json")
 
-    def determine_fonts(self, display=True, cutoff=0.10, override_factor=6):
+    def determine_fonts(self, display=True, cutoff=0.10):
         assert 0 <= cutoff <= 1
+
+        if self.cfg.get_fonts() and "y" != input(
+            "Book already has fonts stored in the config file. Overwrite? [y/n]"
+        ):
+            return
+
         text_cnt = Counter()
         head_cnt = Counter()
         bad_cnt = Counter()
 
-        for i in tqdm(range(1, len(self.cfg.chapters))):  # glob instead?
+        for i in tqdm(range(1, len(self.cfg.chapters))):
             with open(self.rawdir / f"{i}.json", "r", encoding="utf8") as f:
                 data = json.load(f)
 
@@ -274,7 +348,7 @@ class Parser(object):
                     entry["fonts"],
                 )
                 try:
-                    tracker.add_entry(pg_num, label_type, label_num, txt, fonts):
+                    tracker.add_entry(pg_num, label_type, label_num, txt, fonts)
                 except EarlyExitException as e:
                     pass
             tracker.to_file(self.cleandir / f"{i}.json")
@@ -289,7 +363,7 @@ if __name__ == "__main__":
         #
         # fname = "Chest - Felson - Principles of Chest Roentgenology (4e).pdf"
         # fname = "Chest - Elicker - HRCT of the Lungs 2e.pdf"
-        # fname = "General - Brant _ Helms - Fundamentals of Diagnostic Radiology (4e).pdf"  # ! crashed
+        # fname = "General - Brant _ Helms - Fundamentals of Diagnostic Radiology (4e).pdf"  # !crashed
         # fname = "General - Mandell - Core Radiology (1e).pdf"
         # fname = "General - Weissleder - Primer of Diagnostic Imaging (5e).pdf"
         fname = Path("scrape/" + fname)
@@ -297,6 +371,7 @@ if __name__ == "__main__":
 
         parser = Parser(fname)
 
+        # parser.determine_co(co_base=0.7, co_delta=0.02, co_n=5)
         parser.extract_raw()
         # parser.determine_fonts()
         # parser.clean_raw()

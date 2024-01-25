@@ -19,7 +19,7 @@ TERM_PUNC_STR = "".join(TOK_SENTENCE_TERMS)
 
 
 cfg = Config()
-data = cfg.data["cleaning"]
+data = cfg.data["base"]["cleaning"]  # TODO this should be determined by book config, not base
 
 hyphen_extras = set(data["hyphen"]["extras"])
 hyphen_prefixs = set(data["hyphen"]["prefixs"])
