@@ -1,25 +1,14 @@
+from collections import defaultdict
 from pathlib import Path
-from typing import List
 
-import yaml
+# import yaml
+from ruamel.yaml import YAML
+
+yaml = YAML()
+yaml.default_flow_style = True
 
 
-def extract_chapters(fname: Path) -> List[int]:
-    # TODO implement this
-    # - this works only iff the PDF has indexs (embedded Table of Contents)
-    # - this lacks the final page of end of final chapter
-    import fitz
-
-    pdf = fitz.open(fname)
-
-    chapters = []
-    for lvl, title, pg in pdf.get_toc():
-        if lvl != 1:
-            continue
-        # if re.search(r"chapter \d+", title, flags=re.IGNORECASE):
-        # print(f"{title}\tPage: {pg}")
-        chapters.append(pg - 1)  # 0-indexed
-    return chapters
+FONT_KINDS = ("text", "head", "bad")
 
 
 class Config:
@@ -29,8 +18,12 @@ class Config:
         self.cfg_file = Path(cfg_file)
         assert cfg_file.is_file(), f"Config file {cfg_file} not found"
         with open(cfg_file, "r") as yaml_file:
-            data = yaml.load(yaml_file, Loader=yaml.FullLoader)
+            data = yaml.load(yaml_file)
         self.data = data
+
+    def _save_data(self):
+        with open(self.cfg_file, "w") as yaml_file:
+            yaml.dump(self.data, yaml_file)
 
 
 class BookConfig(Config):
@@ -54,6 +47,18 @@ class BookConfig(Config):
             if (start or float("-inf")) <= pg_num < (end or float("inf")):
                 return i
         return None
+
+    def write_font(self, kind, font):
+        assert kind in FONT_KINDS
+        if "fonts" not in self.data["books"][self.fname]:
+            self.data["books"][self.fname]["fonts"] = {k: [] for k in FONT_KINDS}
+        self.data["books"][self.fname]["fonts"][kind] = font
+        self._save_data()
+
+    def write_fonts(self, fonts: list):
+        assert len(fonts) == 3
+        for kind, font in zip(FONT_KINDS, fonts):
+            self.write_font(kind, list(font))
 
 
 if __name__ == "__main__":

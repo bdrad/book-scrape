@@ -3,6 +3,8 @@ from typing import List, Set, Tuple
 
 import nltk
 
+from keppel.utils import round_to_nearest_k
+
 try:
     from nltk.corpus import wordnet31 as wordnet
 except ImportError:
@@ -10,25 +12,6 @@ except ImportError:
     from nltk.corpus import wordnet31 as wordnet
 
 from keppel.config import Config
-
-
-def compact_json(s):
-    # % See appendix for example
-    # Remove leading and tRailing whitespace within JSON objects
-    s = re.sub(r"{\s+", "{ ", s)
-    s = re.sub(r"\s+}", " }", s)
-
-    # Remove whitespace after commas within JSON arrays
-    s = re.sub(r",\s+", ", ", s)
-
-    # Remove leading and trailing whitespace within JSON arrays
-    s = re.sub(r"\[\s+", "[ ", s)
-    s = re.sub(r"\s+\]", " ]", s)
-
-    s = re.sub(r' ("body_font")', r"\n    \1", s)
-    s = re.sub(r"( },) ({)", r"\1\n  \2", s)
-    return s
-
 
 TOK_SENTENCE_TERMS = (".", "!", "?")
 TOK_SENTENCE_CONTS = (",", ":", ";")
@@ -50,9 +33,6 @@ hyphen_corpus = set(filter(lambda w: "-" in w, wordnet.words()))
 hyphen_corpus = hyphen_corpus.union(hyphen_extras)
 
 
-round_to_nearest_k: callable = lambda number, k: round(number * k) / k
-
-
 def clean_fontstr(font: str):
     # FFIOJI+Univers-CondensedBold => Univers
     # UMTALE+JansonText-Roman => JansonText
@@ -64,10 +44,6 @@ def clean_fonts(fonts: List[Tuple[str, float]]) -> Set[Tuple[str, float]]:
     if not fonts:
         return fonts
     return set([(clean_fontstr(f), round_to_nearest_k(s, k=4)) for f, s in fonts if f])
-
-
-def ends_with(txt, terms=(".", "!", "?", ":")) -> bool:
-    return txt and txt.rstrip().endswith(terms)
 
 
 def dehyphenate_string(input_string, pg_num=None):
