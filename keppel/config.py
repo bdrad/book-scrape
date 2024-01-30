@@ -4,6 +4,8 @@ from pathlib import Path
 # import yaml
 from ruamel.yaml import YAML
 
+from keppel.utils import merge_dicts
+
 yaml = YAML()
 yaml.default_flow_style = True
 
@@ -32,15 +34,22 @@ class BookConfig(Config):
         self.fname = Path(pdf_file).name
 
         data_books = self.data["books"]
+        # todo these errors could be more helpful
         if self.fname not in data_books:
             raise ValueError(f"PDF file {self.fname} not found in config file {self.cfg_file}")
         if "chapters" not in data_books[self.fname]:
-            raise ValueError(f"Chapters not found in config file {self.cfg_file}")
+            raise ValueError(
+                f"Chapters not found in book config file {self.cfg_file} for {self.fname}"
+            )
 
         book_data = data_books[self.fname]
         base_data = self.data["base"]
-        self.data = {**base_data, **book_data}
+        assert "chapters" not in base_data, "Chapters should only be in book config"
 
+        # self.data = {**base_data, **book_data} # fails on nested dicts
+        self.data = merge_dicts(base_data, book_data)
+
+        self.use_pdfplumber = self.data.get("detectron", {}).get("pdfplumber", False)
         self.chapters = book_data["chapters"]
 
     def chapter_range(self):

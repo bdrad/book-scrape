@@ -1,5 +1,8 @@
+client_secrets.json
+
 .venv/
 scrape/
 scrape_out/
 ignore/
 *.pyc
+credentials.txt

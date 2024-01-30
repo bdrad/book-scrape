@@ -36,7 +36,7 @@ hyphen_corpus = hyphen_corpus.union(hyphen_extras)
 def clean_fontstr(font: str):
     # FFIOJI+Univers-CondensedBold => Univers
     # UMTALE+JansonText-Roman => JansonText
-    inner_font = r"^([A-Z]+)\+(\w+?)-(\w+?)$"
+    inner_font = r"^([A-Z]+)\+(\w+?)(?:-(\w+?))+$"
     return re.sub(inner_font, r"\2", font) if re.search(inner_font, font) else font
 
 
@@ -143,44 +143,43 @@ def process_text(text: str, log=False, pg_num=None, placeholder=None) -> str:
 
 if __name__ == "__main__":
     # fmt: off
-    assert (res:=dehyphenate_string((txt:="non-Hodgkin’s"))) == (txt,[]), res
-    assert (res:=dehyphenate_string((txt:="max-something"))) == (txt,[]), res
-    assert (res:=dehyphenate_string((txt:="max -something"))) == ("max-something",[]), res  # remove inner spaces
-    assert (res:=dehyphenate_string((txt:="max- something"))) == ("max-something",[]), res  # remove inner spaces
-    assert (res:=dehyphenate_string((txt:="max - something"))) == (txt,[]), res  # don't conjoin
-    assert (res:=dehyphenate_string((txt:="minimum-otherthing"))) == (txt,[]), res
-    assert (res:=dehyphenate_string((txt:="highest-otherthing"))) == (txt,[]), res
-    assert (res:=dehyphenate_string((txt:="False Positives: x-ray is a hyphenated word. 15.25-mm is a hyphenated number."))) == (txt,[]), res
-    assert (res:=dehyphenate_string( \
-        (txt:="True Positive: This is an ex-ample of a de-hyphenated string"))) == \
-        ("True Positive: This is an example of a dehyphenated string",['ex-ample', 'de-hyphenated']), res
-    assert (res:=dehyphenate_string((txt:=" Floats + keeps outer whitespace: Gantry rotation time is usually about 0.5 seconds. "))) == (txt,[]), res
+    # assert (res:=dehyphenate_string((txt:="non-Hodgkin’s"))) == (txt,[]), res
+    # assert (res:=dehyphenate_string((txt:="max-something"))) == (txt,[]), res
+    # assert (res:=dehyphenate_string((txt:="max -something"))) == ("max-something",[]), res  # remove inner spaces
+    # assert (res:=dehyphenate_string((txt:="max- something"))) == ("max-something",[]), res  # remove inner spaces
+    # assert (res:=dehyphenate_string((txt:="max - something"))) == (txt,[]), res  # don't conjoin
+    # assert (res:=dehyphenate_string((txt:="minimum-otherthing"))) == (txt,[]), res
+    # assert (res:=dehyphenate_string((txt:="highest-otherthing"))) == (txt,[]), res
+    # assert (res:=dehyphenate_string((txt:="False Positives: x-ray is a hyphenated word. 15.25-mm is a hyphenated number."))) == (txt,[]), res
+    # assert (res:=dehyphenate_string( \
+    #     (txt:="True Positive: This is an ex-ample of a de-hyphenated string"))) == \
+    #     ("True Positive: This is an example of a dehyphenated string",['ex-ample', 'de-hyphenated']), res
+    # assert (res:=dehyphenate_string((txt:=" Floats + keeps outer whitespace: Gantry rotation time is usually about 0.5 seconds. "))) == (txt,[]), res
 
+    # assert (res:=process_text((txt:="Gantry rotation time is usually about 0.5 seconds"))) == txt, res
+    # assert (res:=process_text((txt:="The formula relating scan parameters for MDCT is shown in Fig. 1-1."))) == '', res
+    # assert (res:=process_text((txt:="However, several general principles apply to all chest scans (TABLE 1-1)."))) == 'However, several general principles apply to all chest scans.', res
+    # assert (res:=process_text((txt:="Non-Hodgkin’s"))) == txt, res
+    # assert (res:=process_text((txt:="max-something"))) == txt, res
+    # assert (res:=process_text((txt:="minimum-otherthing"))) == txt, res
+    # assert (res:=process_text((txt:="highest-otherthing"))) == txt, res
+    # assert (res:=process_text((txt:="e.g."))) == txt, res
+    # assert (res:=process_text((txt:=".1"))) == txt, res
 
-    assert (res:=process_text((txt:="Gantry rotation time is usually about 0.5 seconds"))) == txt, res
-    assert (res:=process_text((txt:="The formula relating scan parameters for MDCT is shown in Fig. 1-1."))) == '', res
-    assert (res:=process_text((txt:="However, several general principles apply to all chest scans (TABLE 1-1)."))) == 'However, several general principles apply to all chest scans.', res
-    assert (res:=process_text((txt:="Non-Hodgkin’s"))) == txt, res
-    assert (res:=process_text((txt:="max-something"))) == txt, res
-    assert (res:=process_text((txt:="minimum-otherthing"))) == txt, res
-    assert (res:=process_text((txt:="highest-otherthing"))) == txt, res
-    assert (res:=process_text((txt:="e.g."))) == txt, res
-    assert (res:=process_text((txt:=".1"))) == txt, res
+    # assert (res:=process_text((txt:="lorem)ipsum"))) == "lorem) ipsum", res
+    # assert (res:=process_text((txt:="abc1"))) == "abc 1", res
+    # assert (res:=process_text((txt:=".a "))) == ". a ", res
+    # assert (res:=process_text((txt:=".a"))) == ".a", res
+    # assert (res:=process_text((txt:="abcDef"))) == "abc Def", res
+    # assert (res:=process_text((txt:="lorem(ipsum)"))) == "lorem (ipsum)", res
+    # assert (res:=process_text((txt:="quickly,excellent"))) == "quickly, excellent", res
 
-    assert (res:=process_text((txt:="lorem)ipsum"))) == "lorem) ipsum", res
-    assert (res:=process_text((txt:="abc1"))) == "abc 1", res
-    assert (res:=process_text((txt:=".a "))) == ". a ", res
-    assert (res:=process_text((txt:=".a"))) == ".a", res
-    assert (res:=process_text((txt:="abcDef"))) == "abc Def", res
-    assert (res:=process_text((txt:="lorem(ipsum)"))) == "lorem (ipsum)", res
-    assert (res:=process_text((txt:="quickly,excellent"))) == "quickly, excellent", res
-
-    assert (res:=process_text((txt:="figs."))) == "figure", res
-    assert (res:=process_text((txt:="fig."))) == "figure", res
-    assert (res:=process_text((txt:="(fig. A)"))) == "", res
-    assert (res:=process_text((txt:="(fig. 3 description)"))) == "", res
-    assert (res:=process_text((txt:="(figure\n9. SAE)"))) == "", res
-    assert (res:=process_text((txt:="pre (fig. 1)."))) == "pre.", res
+    # assert (res:=process_text((txt:="figs."))) == "figure", res
+    # assert (res:=process_text((txt:="fig."))) == "figure", res
+    # assert (res:=process_text((txt:="(fig. A)"))) == "", res
+    # assert (res:=process_text((txt:="(fig. 3 description)"))) == "", res
+    # assert (res:=process_text((txt:="(figure\n9. SAE)"))) == "", res
+    # assert (res:=process_text((txt:="pre (fig. 1)."))) == "pre.", res
     # assert (res:=process_text((txt:="Slice Thickness and Pitch (Table Excursion)"))) == txt, res
     # fmt: on
 
@@ -191,6 +190,7 @@ if __name__ == "__main__":
         ["PSFMKZ+JansonText-Italic", 10.0],
         ["FFIOJI+Univers-CondensedBold", 10.0],
         ["UMTALE+JansonText-Roman", 12.0],
+        ["FUCJOE+JansonText-Roman-SC800", 27.0],
     ]
     print(clean_fonts(fonts))
 

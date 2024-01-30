@@ -41,7 +41,7 @@ def extract_chapters(fname: Path) -> List[int]:
     return chapters
 
 
-def compact_json(s):
+def compact_json(s: str) -> str:
     # % See appendix for example
     # Remove leading and tRailing whitespace within JSON objects
     s = re.sub(r"{\s+", "{ ", s)
@@ -57,3 +57,16 @@ def compact_json(s):
     s = re.sub(r' ("body_font")', r"\n    \1", s)
     s = re.sub(r"( },) ({)", r"\1\n  \2", s)
     return s
+
+
+def merge_dicts(base_data: dict, new_data: dict) -> dict:
+    out = dict(base_data)
+    for k, v in new_data.items():
+        if k in out:
+            if isinstance(v, dict) and isinstance(out[k], dict):
+                out[k] = merge_dicts(out[k], v)
+            else:
+                out[k] = v
+        else:
+            out[k] = v
+    return out

@@ -120,10 +120,8 @@ class JoinTracker(Tracker):
         """
         Returns True if the chapter is complete
         """
-        if label_type not in LABEL_MODES:
+        if label_type not in LABEL_MODES or not txt:
             return
-        else:
-            pass
 
         if len(self.entries):
             prior_entry = self.entries[-1]
@@ -133,7 +131,7 @@ class JoinTracker(Tracker):
                 label_num,
             )
 
-            # TODO consider merging entries with same label_type (under what conditions?)
+            # TODO consider merging entries (under what conditions? with same label_type?)
             txt = clip_overlap(prior_entry.txt, txt, min_overlap=8)
 
             if txt.upper() in self.EARLY_EXIT_TXTS:
@@ -143,12 +141,13 @@ class JoinTracker(Tracker):
             # TODO if font is bad
             if label_type == "Text":
                 if txt and txt == txt.upper():
-                    print("$$$ upper-cased Text changed to Title")
+                    print("$$$ all upper-cased Text changed to Title:\n", txt)
                     label_type = "Title"
                 # TODO if font is in title fonts
             elif label_type == "Title":
-                if txt and txt[0].islower():
-                    print("$$$ lower-cased Title changed to Text")
+                if len(txt) >= 5 and all([c.islower() for c in txt[:5]]):
+                    # von Hippel–Lindau Disease false flag!
+                    print("$$$ lower-cased Title changed to Text:\n", txt)
                     label_type = "Text"
                 # TODO if font is in text fonts
 
@@ -156,8 +155,9 @@ class JoinTracker(Tracker):
 
             if label_type == "Title":
                 if prior_entry.label_type == "Title":
-                    prior_entry.merge(TrackerEntry(pg_num, label_type, label_num, txt, fonts))
-                    return
+                    # prior_entry.merge(TrackerEntry(pg_num, label_type, label_num, txt, fonts))
+                    # return
+                    pass  # don't merge headers
                 else:
                     if (
                         self.SKIP_INTERRUPTING_HEADER

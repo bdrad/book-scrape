@@ -12,7 +12,7 @@ books:
     chapters: [6, 12, 26, 49, 73, 94, 134, 151, 176, 188, 214, 225, 241, 250, 278,
       290, 323, 340, 349, 363, 370]
     fonts: {head: [[Univers, 13.0], [Univers, 10.0]], text: [[JansonText, 10.0], [
-          AGYLNO+Univers, 8.0]], bad: [[OKZFDQ+Helvetica, 8.0]]}
+          AGYLNO+Univers, 8.0]], bad: [[OKZFDQ+Helvetica, 8.0], [JansonText, 8.0]]}
   General - Brant _ Helms - Fundamentals of Diagnostic Radiology (4e).pdf:
     chapters: [12, 38, 334, 546, 578, 628, 680, 806, 868, 990, 1138, 1238, 1418]
   General - Mandell - Core Radiology (1e).pdf:
@@ -20,6 +20,8 @@ books:
   General - Weissleder - Primer of Diagnostic Imaging (5e).pdf:
     chapters: [13, 84, 127, 216, 280, 365, 439, 474, 521, 545, 587, 649, 692, 702,
       759]
+    detectron:
+      pdfplumber: true
 base:
   detectron:
     model_name: "lp://PubLayNet/mask_rcnn_X_101_32x8d_FPN_3x/config"
