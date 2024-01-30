@@ -218,17 +218,24 @@ class Parser(object):
                 w_ratio, h_ratio = w_pg / w_im, h_pg / h_im
 
                 if self.cfg.use_pdfplumber:
+                    assert pg.textboxhorizontals, "Pass `laparams={...}` when opening the PDF file"
                     kind = None  # whole point of using pdfplumber is because the model cannot accurately recognize/characterize the kind of texts
 
                     labels = pg.textboxhorizontals  # TODO sort these as done in _get_labels
                     for label_num, label in enumerate(labels):
                         x0, y0, x1, y1 = label["x0"], label["y0"], label["x1"], label["y1"]
-                        # TODO pad
+                        assert x0 < x1 and y0 < y1
+                        x0, y0, x1, y1 = (x0, pg.height - y1, x1, pg.height - y0)
+                        # TODO padding
+                        # x0, x1 = x0 * (1 + self.pad), x1 * (1 - self.pad)
+                        # y0, y1 = y0 * (1 + self.pad), y1 * (1 - self.pad)
 
                         # TODO restructure so we can extract fig if using pdfplumber
 
-                        area = pg.within_bbox((x0, y0, x1, y1), strict=False)
+                        area = pg.within_bbox((x0, y0, x1, y1), strict=False, relative=True)
+                        # txt = label["text"]
                         txt = area.extract_text()
+                        # print(len(txt), len(label["text"]))
                         if not txt:
                             # TODO occassionally we get here yet have non-empty label["text"] -- how to handle?
                             continue
@@ -253,6 +260,7 @@ class Parser(object):
                     pad_x, pad_y = self.pad * w_im, self.pad * h_im
                     label = label.pad(left=pad_x, right=pad_x, top=pad_y, bottom=pad_y)
                     x0, y0, x1, y1 = label.coordinates  # left, top, right, bottom
+                    assert x0 < x1 and y0 < y1
                     x0, x1 = x0 * w_ratio, x1 * w_ratio
                     y0, y1 = y0 * h_ratio, y1 * h_ratio
 

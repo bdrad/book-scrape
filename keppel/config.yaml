@@ -22,6 +22,8 @@ books:
       759]
     detectron:
       pdfplumber: true
+      box_pad: 0.050
+    fonts: {head: [], text: [[ Garamond, 10.0 ]], bad: [ [CFWYQT+Univers, 8.0] ]}
 base:
   detectron:
     model_name: "lp://PubLayNet/mask_rcnn_X_101_32x8d_FPN_3x/config"
