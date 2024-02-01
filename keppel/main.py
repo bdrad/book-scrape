@@ -27,28 +27,17 @@ assert DATA.is_dir()
 FONT_KINDS = ("text", "head", "bad")
 
 
-def extract_fonts(pg: Page, round_k=4) -> list[list[str, float], int]:
+def extract_fonts(pg: Page, round_k=4, clean=False) -> list[list[str, float], int]:
     count = Counter()
     for ch in pg.chars:
         name, size = ch["fontname"], ch["size"]
-        name = clean_fontstr(name)
+        if clean:
+            name = clean_fontstr(name)
         size = round_to_nearest_k(size, k=round_k) if round_k else size
         entry = (name, size)
         count.update([entry])
 
     return [[[name, size], freq] for (name, size), freq in count.items()]
-    # out = [(name, size, freq) for (name, size), freq in count.items()]
-    # return out
-    # out = list(count.items()) # drop counts
-
-    # # remove duplicates, but maintain ordering
-    # dedup = []
-    # seen = set()
-    # for entry in out:
-    #     if entry not in seen:
-    #         seen.add(entry)
-    #         dedup.append(entry)
-    # return dedup
 
 
 class Parser(object):
@@ -56,9 +45,7 @@ class Parser(object):
         self.fname = Path(fname)
         assert self.fname.is_file(), f"File {fname} not found"
 
-        laparams = dict(detect_vertical=False)
-        # laparams=dict(detect_vertical=False, word_margin=0.08)    # this doesn't cause any difference?
-        self.pdf = pdfplumber.open(fname, laparams=laparams).pages
+        self.__pdf = None  # lazy load
 
         self.outdir = Path("scrape_out")
         self.outdir /= self.fname.stem
@@ -73,32 +60,43 @@ class Parser(object):
         self.cfg: BookConfig = BookConfig(fname)
 
         # https://layout-parser.readthedocs.io/en/latest/notes/modelzoo.html
-        cfg_model = self.cfg.data["detectron"]
+        cfg_model: dict = self.cfg.data["detectron"]
         self._model_name = str(cfg_model["model_name"])
-        self._model_co = float(cfg_model["score_co"])
-        self.pad = float(cfg_model["box_pad"])
-        # pad=0.010,
-        # pad=0.0075,
-        # pad=0.006,
-        self.resolution = int(cfg_model["resolution"])
         assert "PubLayNet" in self._model_name
+        self._model_co = float(cfg_model["score_co"])
         assert 0 <= self._model_co <= 1
+        self.pad = float(cfg_model["box_pad"])
         assert 0 <= self.pad < 1
+        self.resolution = int(cfg_model["resolution"])
 
         self._label_map = {0: "Text", 1: "Title", 2: "List", 3: "Table", 4: "Figure"}
-        print(f"Loading model {self._model_name} with score cutoff {self._model_co}")
-        self.model = lp.models.Detectron2LayoutModel(
-            # 'lp://PubLayNet/faster_rcnn_R_50_FPN_3x/config',
-            # "lp://PubLayNet/mask_rcnn_X_101_32x8d_FPN_3x/config",
-            self._model_name,
-            # extra_config=["MODEL.ROI_HEADS.SCORE_THRESH_TEST", 0.9],
-            # extra_config=["MODEL.ROI_HEADS.SCORE_THRESH_TEST", 0.77],
-            # extra_config=["MODEL.ROI_HEADS.SCORE_THRESH_TEST", 0.72],
-            # extra_config=["MODEL.ROI_HEADS.SCORE_THRESH_TEST", 0.7],
-            # extra_config=["MODEL.ROI_HEADS.SCORE_THRESH_TEST", 0.65],
-            extra_config=["MODEL.ROI_HEADS.SCORE_THRESH_TEST", self._model_co],
-            label_map=self._label_map,
-        )
+        self.__model = None  # lazy load
+
+    @property
+    def pdf(self) -> List[Page]:
+        if self.__pdf is None:
+            laparams = dict(detect_vertical=False)
+            # laparams=dict(detect_vertical=False, word_margin=0.08)    # this doesn't cause any difference?
+            self.__pdf = pdfplumber.open(fname, laparams=laparams).pages
+        return self.__pdf
+
+    @property
+    def model(self):
+        if self.__model is None:
+            print(f"Loading model {self._model_name} with score cutoff {self._model_co}")
+            self.__model = lp.models.Detectron2LayoutModel(
+                # 'lp://PubLayNet/faster_rcnn_R_50_FPN_3x/config',
+                # "lp://PubLayNet/mask_rcnn_X_101_32x8d_FPN_3x/config",
+                self._model_name,
+                # extra_config=["MODEL.ROI_HEADS.SCORE_THRESH_TEST", 0.9],
+                # extra_config=["MODEL.ROI_HEADS.SCORE_THRESH_TEST", 0.77],
+                # extra_config=["MODEL.ROI_HEADS.SCORE_THRESH_TEST", 0.72],
+                # extra_config=["MODEL.ROI_HEADS.SCORE_THRESH_TEST", 0.7],
+                # extra_config=["MODEL.ROI_HEADS.SCORE_THRESH_TEST", 0.65],
+                extra_config=["MODEL.ROI_HEADS.SCORE_THRESH_TEST", self._model_co],
+                label_map=self._label_map,
+            )
+        return self.__model
 
     # TODO add to cfg one/two column choice and implement here
     # TODO ensure that the ordering here is correct
@@ -151,9 +149,9 @@ class Parser(object):
         return blocks
 
     def determine_co(self, co_base: float = None, co_delta: float = 0.05, co_n: int = 6):
-        assert (
-            self.cfg.use_pdfplumber is False
-        ), "Cannot map fonts to categories with pdfplumber (requires detectron model)"
+        # assert (
+        #     self.cfg.use_pdfplumber is False
+        # ), "Cannot map fonts to categories with pdfplumber (requires detectron model)"
 
         possible_pages = range(self.cfg.chapters[0], self.cfg.chapters[-1])
         random.seed(0)
@@ -192,12 +190,16 @@ class Parser(object):
         fig.tight_layout(pad=0.0)
         # gs = gridspec.GridSpec(len(pages), n, figure=fig)
         # gs.update(wspace=0.025, hspace=0.025)
-        for i, o in enumerate(outs):
-            for j, (co, outs) in enumerate(zip(cutoffs, results)):
-                axs[i, j].imshow(o)
-                axs[i, j].axis("off")
+        for j, (co, outs) in enumerate(zip(cutoffs, results)):
+            for i, o in enumerate(outs):
+                if axs.ndim == 1:
+                    coord = (i,)
+                else:
+                    coord = (i, j)
+                axs[*coord].imshow(o)
+                axs[*coord].axis("off")
                 if i == 0:
-                    axs[i, j].set_title(f"co={co:.3f}")
+                    axs[*coord].set_title(f"co={co:.3f}")
         # plt.show()
         plt.subplots_adjust(wspace=0, hspace=0)
         fig.savefig(self.outdir / "co.png", bbox_inches="tight", dpi=300, pad_inches=0)
@@ -218,9 +220,9 @@ class Parser(object):
                 w_ratio, h_ratio = w_pg / w_im, h_pg / h_im
 
                 if self.cfg.use_pdfplumber:
-                    assert pg.textboxhorizontals, "Pass `laparams={...}` when opening the PDF file"
                     kind = None  # whole point of using pdfplumber is because the model cannot accurately recognize/characterize the kind of texts
 
+                    assert pg.textboxhorizontals, "Pass `laparams={...}` when opening the PDF file"
                     labels = pg.textboxhorizontals  # TODO sort these as done in _get_labels
                     for label_num, label in enumerate(labels):
                         x0, y0, x1, y1 = label["x0"], label["y0"], label["x1"], label["y1"]
@@ -233,7 +235,7 @@ class Parser(object):
                         # TODO restructure so we can extract fig if using pdfplumber
 
                         area = pg.within_bbox((x0, y0, x1, y1), strict=False, relative=True)
-                        # txt = label["text"]
+                        # txt = label["text"]   # buggy whitespace (e.g. uses \t rather than spaces)
                         txt = area.extract_text()
                         # print(len(txt), len(label["text"]))
                         if not txt:
@@ -372,11 +374,11 @@ class Parser(object):
         self.cfg.write_fonts(fonts)
 
     def clean_raw(self):
-        for i in tqdm(range(1, len(self.cfg.chapters))):  # glob instead?
+        for i in tqdm(range(1, len(self.cfg.chapters))):
             with open(self.rawdir / f"{i}.json", "r", encoding="utf8") as f:
                 data = json.load(f)
 
-            tracker = JoinTracker()
+            tracker = JoinTracker(self.cfg)
 
             for entry in data:
                 txt, pg_num, label_type, label_num, fonts = (
@@ -405,12 +407,13 @@ if __name__ == "__main__":
         # fname = "General - Brant _ Helms - Fundamentals of Diagnostic Radiology (4e).pdf"  # !crashed
         # fname = "General - Mandell - Core Radiology (1e).pdf"   # poorly parsed
         fname = "General - Weissleder - Primer of Diagnostic Imaging (5e).pdf"
+        # fname = "test"
         fname = Path("scrape/" + fname)
         print(str(fname))
 
         parser = Parser(fname)
 
-        # parser.determine_co(co_base=0.7)
-        parser.extract_raw()
+        parser.determine_co(co_base=0.7)
+        # parser.extract_raw()
         # parser.determine_fonts()
         # parser.clean_raw()

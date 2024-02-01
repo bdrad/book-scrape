@@ -113,17 +113,30 @@ class JoinTracker(Tracker):
 
     EARLY_EXIT_TXTS = ("FURTHER READING", "SUGGESTED READING")
 
-    def __init__(self):
+    def __init__(self, cfg):
         self.entries = []
+        self.cfg = cfg
 
     def add_entry(self, pg_num, label_type, label_num, txt, fonts) -> bool:
         """
         Returns True if the chapter is complete
         """
-        if label_type not in LABEL_MODES or not txt:
-            return
+        if label_type:
+            if label_type not in LABEL_MODES or not txt:
+                return
+        else:
+            # pdfplumber sets label_type to None
+            # use cfg font info to determine label_type
+            if len(fonts) == 1:
+                font = fonts[0][:-1][0]  # most common, drop freq
+                if font in self.cfg.get_font("head"):
+                    label_type = "Title"
+                elif font in self.cfg.get_font("text"):
+                    label_type = "Text"
 
-        if len(self.entries):
+        if not len(self.entries):
+            txt = process_text(txt)
+        else:
             prior_entry = self.entries[-1]
             assert prior_entry.pgs[-1] <= pg_num, (prior_entry.pgs[-1], pg_num)
             assert prior_entry.labels[-1] <= label_num or prior_entry.pgs[-1] < pg_num, (
@@ -145,11 +158,14 @@ class JoinTracker(Tracker):
                     label_type = "Title"
                 # TODO if font is in title fonts
             elif label_type == "Title":
-                if len(txt) >= 5 and all([c.islower() for c in txt[:5]]):
+                if len(txt) >= (k := 5) and all([c.islower() for c in txt[:k]]):
                     # von Hippel–Lindau Disease false flag!
                     print("$$$ lower-cased Title changed to Text:\n", txt)
                     label_type = "Text"
                 # TODO if font is in text fonts
+            else:
+                # could drop
+                pass
 
             txt = process_text(txt)
 
@@ -158,7 +174,7 @@ class JoinTracker(Tracker):
                     # prior_entry.merge(TrackerEntry(pg_num, label_type, label_num, txt, fonts))
                     # return
                     pass  # don't merge headers
-                else:
+                elif prior_entry.label_type == "Text":
                     if (
                         self.SKIP_INTERRUPTING_HEADER
                         and not term_str(prior_entry.txt)
@@ -174,7 +190,7 @@ class JoinTracker(Tracker):
 
                 if prior_entry.label_type == "Title":
                     pass
-                else:
+                elif prior_entry.label_type == "Text":
                     if (fonts and prior_entry.fonts) and (
                         not fonts[0][:-1] == prior_entry.fonts[0][:-1]
                     ):

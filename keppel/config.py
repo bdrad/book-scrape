@@ -64,12 +64,14 @@ class BookConfig(Config):
 
     def get_font(self, kind):
         assert kind in FONT_KINDS
-        return self.data["books"][self.fname]["fonts"][kind]
+        return self.data["fonts"][kind]
 
     def get_fonts(self):
         return [self.get_font(kind) for kind in FONT_KINDS]
 
     def write_font(self, kind, font):
+        raise NotImplementedError
+        # ! I think this may overwrite whole file with just book settings
         assert kind in FONT_KINDS
         if "fonts" not in self.data["books"][self.fname]:
             self.data["books"][self.fname]["fonts"] = {k: [] for k in FONT_KINDS}

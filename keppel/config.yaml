@@ -23,7 +23,10 @@ books:
     detectron:
       pdfplumber: true
       box_pad: 0.050
-    fonts: {head: [], text: [[ Garamond, 10.0 ]], bad: [ [CFWYQT+Univers, 8.0] ]}
+    fonts: {head: [ Univers, 18.0 ], text: [[ Garamond, 10.0 ], [Univers, 9.5]], bad: [ [CFWYQT+Univers, 8.0] ]}
+  test:
+    chapters: [-1, -1]
+    fonts: {head: [[ HeadFont, 2.0 ]], text: [[ TextFont, 1.0 ]], bad: [[ BadFont, 3.0 ]]}
 base:
   detectron:
     model_name: "lp://PubLayNet/mask_rcnn_X_101_32x8d_FPN_3x/config"
