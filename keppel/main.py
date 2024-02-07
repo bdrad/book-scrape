@@ -3,7 +3,7 @@ import random
 import sys
 from collections import Counter
 from pathlib import Path
-from typing import Dict, List, Set, Tuple
+from typing import Dict, Iterable, List, Set, Tuple
 
 import fire
 import layoutparser as lp
@@ -43,7 +43,7 @@ def extract_fonts(pg: Page, round_k=4, clean=False) -> list[list[str, float], in
 class Parser(object):
     def __init__(self, fname: str) -> None:
         self.fname = Path(fname)
-        assert self.fname.is_file(), f"File {fname} not found"
+        assert self.fname.exists(), f"{fname} not found"
 
         self.__pdf = None  # lazy load
 
@@ -51,11 +51,9 @@ class Parser(object):
         self.outdir /= self.fname.stem
         self.rawdir = self.outdir / "raw"
         self.cleandir = self.outdir / "clean"
-        for dir in (self.outdir, self.rawdir, self.cleandir):
+        self.img_dir = self.outdir / "imgs"
+        for dir in (self.outdir, self.rawdir, self.cleandir, self.img_dir):
             dir.mkdir(exist_ok=True)
-        for dir in (self.rawdir, self.cleandir):
-            img_dir = dir / "imgs"
-            img_dir.mkdir(exist_ok=True)
 
         self.cfg: BookConfig = BookConfig(fname)
 
@@ -169,7 +167,6 @@ class Parser(object):
         results = []
 
         for co in tqdm(cutoffs):
-            # TODO ensure this behaves correctly -- many of the results appear the same..
             tmp_model = lp.models.Detectron2LayoutModel(
                 self._model_name,
                 extra_config=["MODEL.ROI_HEADS.SCORE_THRESH_TEST", co],
@@ -204,12 +201,34 @@ class Parser(object):
         plt.subplots_adjust(wspace=0, hspace=0)
         fig.savefig(self.outdir / "co.png", bbox_inches="tight", dpi=300, pad_inches=0)
 
+    def _iter_ch_pages(self):
+        """
+        First yields the number of chapters, then yields the pages for each chapter
+        """
+        if self.cfg.chapters is None:
+            # get pdf files in dir
+            pdfs = sorted(self.fname.glob("*.pdf"))
+            yield len(pdfs)
+            for pdf in pdfs:
+                with pdfplumber.open(pdf) as p:
+                    yield p.pages
+        else:
+            yield len(self.cfg.chapters)
+            for start, end in self.cfg.chapters:
+                yield self.pdf[start:end]
+
     def extract_raw(self, extract_figs=True):
-        chapters = self.cfg.chapter_range()
-        for ch_i, ch in enumerate(chapters, 1):
-            print(f"Processing ch{ch_i}")
-            start, end = ch
-            pages: List[Page] = self.pdf[start:end]  # todo make fctn
+        # chapters = self.cfg.chapters
+        # for ch_i, ch in enumerate(chapters, 1):
+        #     print(f"Processing ch{ch_i}/{len(chapters)}")
+        #     start, end = ch
+        #     pages: List[Page] = self.pdf[start:end]  # todo make fctn
+
+        itr = self._iter_ch_pages()
+        num_chapters = next(itr)
+        for ch_i, pages in enumerate(itr, 1):
+            print(f"Processing ch{ch_i}/{num_chapters}")
+
             pretracker = PreTracker()
 
             for pg in tqdm(pages):
@@ -269,7 +288,7 @@ class Parser(object):
                     if extract_figs and kind == "Figure":
                         pg_crop = pg.crop((x0, y0, x1, y1), strict=False)
                         img = pg_crop.to_image(resolution=self.resolution)
-                        out_dir = Path(self.rawdir / f"imgs/{ch_i}")
+                        out_dir = Path(self.img_dir / f"{ch_i}")
                         out_dir.mkdir(exist_ok=True)
                         img.save(out_dir / f"{pg_num}-{label_num}.png")
 
@@ -288,7 +307,7 @@ class Parser(object):
                         last_id = f"{last_entry.pgs[0]}-{last_entry.labels[0]}"
                         kind = "FigureCaption-" + last_id
 
-                        out_dir = Path(self.rawdir / f"imgs/{ch_i}")
+                        out_dir = Path(self.img_dir / f"{ch_i}")
                         out_dir.mkdir(exist_ok=True)
                         with open(out_dir / f"{last_id}.txt", "w") as f:
                             f.write(txt)
@@ -401,19 +420,33 @@ if __name__ == "__main__":
     else:
         print("No arguments given, running test case")
         # fmt: off
+        # ====
         # fname = "Chest - Webb - Fundamentals of Body CT (4e).pdf"
-        # ===
         # fname = "Chest - Elicker - HRCT of the Lungs 2e.pdf"  # poorly scanned
-        # fname = "General - Brant _ Helms - Fundamentals of Diagnostic Radiology (4e).pdf"  # !crashed
+        # fname = "US - Ultrasound Requisites (3e).pdf"
+        # fname = "Breast - ACR - BIRADS_ATLAS (2013).pdf"
+        # fname = "MSK - Greenspan - Orthopedic Imaging (6e).pdf"
+        # fname = "MSK - Helms - Fundamentals of Skeletal Radiology (4e).pdf"
+        # fname = "Neuro - Lane - The Temporal Bone Textbook.pdf"
+        # fname = "NM - Mettler - Nuclear Medicine (6e).pdf"
+        # fname = "Peds - Donnelly - Pediatric Imaging The Fundamentals.pdf"
+        # === Directories
+        fname = "Arthritis in B&W 3e"
+        # === Poor scans:
         # fname = "General - Mandell - Core Radiology (1e).pdf"   # poorly parsed
-        fname = "General - Weissleder - Primer of Diagnostic Imaging (5e).pdf"
+        # fname = "General - Weissleder - Primer of Diagnostic Imaging (5e).pdf"
+        # === Buggy cases
+        # fname = "General - Brant _ Helms - Fundamentals of Diagnostic Radiology (4e).pdf"  # !crashed
+        # fname = "EM - Raby - Accident & Emergency Radiology (3e).pdf"  # simply does load??
+        # ===
         # fname = "test"
+
         fname = Path("scrape/" + fname)
         print(str(fname))
 
         parser = Parser(fname)
 
-        parser.determine_co(co_base=0.7)
-        # parser.extract_raw()
+        # parser.determine_co(co_base=0.7)
+        parser.extract_raw()
         # parser.determine_fonts()
         # parser.clean_raw()

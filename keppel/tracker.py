@@ -29,10 +29,7 @@ TOK_SENTENCE_TERMS = (".", "!", "?")
 TOK_SENTENCE_CONTS = (",", ":", ";")
 TERM_PUNC_STR = "".join(TOK_SENTENCE_TERMS)
 
-TRACKER_MODES = {"startup", "header", "body"}
 LABEL_MODES = {"Title", "Text"}
-# JOINER_MODES = LABEL_MODES.union("startup")
-
 CLEAN_MERGE = True  # ensure there is a single space between existing text and the new entry
 
 
@@ -46,7 +43,7 @@ class TrackerEntry:
     pgs: List[int] = field(init=False)
     labels: List[int] = field(init=False)
 
-    def __post_init__(self, pg_num, label_num):
+    def __post_init__(self, pg_num: int, label_num: int):
         self.pgs = [pg_num, pg_num]
         self.labels = [label_num, label_num]
 
@@ -111,7 +108,13 @@ class JoinTracker(Tracker):
     # TODO CFG
     SKIP_INTERRUPTING_HEADER = True
 
-    EARLY_EXIT_TXTS = ("FURTHER READING", "SUGGESTED READING")
+    # todo make these regex patterns, add to cfg
+    EARLY_EXIT_TXTS = (
+        "FURTHER READING",
+        "FURTHER READINGS",
+        "SUGGESTED READING",
+        "SUGGESTED READINGS",
+    )
 
     def __init__(self, cfg):
         self.entries = []
@@ -207,6 +210,7 @@ class JoinTracker(Tracker):
 
 
 # label_to_mode = lambda label: "header" if label == "Title" else "body"
+# TRACKER_MODES = {"startup", "header", "body"}
 
 # class ChapterTracker:
 #     skip_interruping_header = True

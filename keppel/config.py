@@ -50,14 +50,25 @@ class BookConfig(Config):
         self.data = merge_dicts(base_data, book_data)
 
         self.use_pdfplumber = self.data.get("detectron", {}).get("pdfplumber", False)
-        self.chapters = book_data["chapters"]
+        self.chapters = self._parse_chapters(self.data["chapters"])
 
-    def chapter_range(self):
-        return list(zip(self.chapters, self.chapters[1:]))
+    @staticmethod
+    def _parse_chapters(chapters):
+        if type(chapters) is str and chapters.upper() == "DIR":
+            return None
+        out = []
+        for i, j in zip(chapters, chapters[1:]):
+            if -1 in (i, j):
+                continue
+            out.append((i, j))
+        return out
+
+    # this is now the default format of chapters, handled in _parse_chapters
+    # def chapter_range(self):
+    #     return list(zip(self.chapters, self.chapters[1:]))
 
     def contained_chapter(self, pg_num):
-        chapter_range = self.chapter_range()
-        for i, (start, end) in enumerate(chapter_range):
+        for i, (start, end) in enumerate(self.chapters):
             if (start or float("-inf")) <= pg_num < (end or float("inf")):
                 return i
         return None

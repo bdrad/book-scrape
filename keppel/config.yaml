@@ -1,4 +1,21 @@
 books:
+  US - Ultrasound Requisites (3e).pdf:
+    chapters: [0, 25, 46, 84, 100, 149, 188, 206, 217, 241, 275, 300, 325, 337, 369, 409, 426, 446, 468, 481, 510, 525, 553, 580]
+  Breast - ACR - BIRADS_ATLAS (2013).pdf:
+    chapters: [20, 32, 167, 184, 212, -2, 231, 254, 331, 343, 358, -2, 371, 384, 519, 539,
+ 543, 559, -2, 573, 583, 595, 598, 608, 612, 625]
+  EM - Raby - Accident & Emergency Radiology (3e).pdf:
+    chapters: [5, 15, 39, 51, 57, 77, 99, 119, 129, 157, 175, 203, 217, 231, 247, 269, 297, 311, 333, 347, 353, 366]
+  MSK - Greenspan - Orthopedic Imaging (6e).pdf:
+    chapters: [7, 27, 101, 111, 238, 356, 438, 574, 639, 767, 904, 1039, 1116, 1184, 1266, 1333, 1447, 1504, 1588, 1660, 1771, 1858, 1949, 1988, 2016, 2081, 2108, 2142, 2163, 2202, 2236, 2260, 2344, 2438]
+  MSK - Helms - Fundamentals of Skeletal Radiology (4e).pdf:
+    chapters: [6, 12, 37, 60, 81, 116, 144, 158, 170, 187, 198, 211, 224, 231]
+  Neuro - Lane - The Temporal Bone Textbook.pdf:
+    chapters: [0, 5, 27, 74, 96]
+  NM - Mettler - Nuclear Medicine (6e).pdf:
+    chapters: [5, 26, 73, 100, 132, 195, 236, 270, 314, 344, 360, 396, 419, 440]
+  Peds - Donnelly - Pediatric Imaging The Fundamentals.pdf:
+    chapters: [6, 13, 31, 67, 91, 130, 161, 217, 262]
   Chest - Elicker - HRCT of the Lungs 2e.pdf:
     chapters: [49, 62, 83, 104, 116, 129, 150, 166, 174, 199, 212, 221, 233, 247,
       265, 274, 283, 296, 305]
@@ -23,9 +40,12 @@ books:
     detectron:
       pdfplumber: true
       box_pad: 0.050
-    fonts: {head: [ Univers, 18.0 ], text: [[ Garamond, 10.0 ], [Univers, 9.5]], bad: [ [CFWYQT+Univers, 8.0] ]}
+    fonts: {head: [[ Univers, 18.0 ]], text: [[ Garamond, 10.0 ], [Univers, 9.5]], bad: [[CFWYQT+Univers, 8.0]]}
+  Arthritis in B&W 3e:
+    chapters: "DIR"
+  # ===
   test:
-    chapters: [-1, -1]
+    chapters: [-2, -2]
     fonts: {head: [[ HeadFont, 2.0 ]], text: [[ TextFont, 1.0 ]], bad: [[ BadFont, 3.0 ]]}
 base:
   detectron:
@@ -126,6 +146,9 @@ base:
       - high
       - higher
       - highest
+      - low
+      - lower
+      - lowest
       suffixs:
       - mm
       - cm
