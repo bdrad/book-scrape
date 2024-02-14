@@ -4,6 +4,22 @@
 Motivated by _[Textbooks Are All You Need](https://arxiv.org/abs/2306.11644)_.
 
 
+## config
+
+Asterisks (*) denote required fields.
+
+#### books
+
+Book section entries are the final name of the book and have the following fields:
+- `chapters`*: List of pages numbers (0-indexed), where chapter `n` is defined as pages contained in range `[chapters[n-1], chapters[n])`. The last entry corresponds to final page of last chapter; `-1` is interpreted as skip/break. This may also be set to "DIR" to indicate that the book is a directory of PDFs, all of which should be scraped.
+
+
+
+
+
+
+
+
 ## todos
 
 - [x] Generate `requirements.txt`

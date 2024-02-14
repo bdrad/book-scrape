@@ -1,9 +1,8 @@
 import json
-import re
 from collections import defaultdict
 from dataclasses import InitVar, asdict, dataclass, field
 from pathlib import Path
-from typing import List, Set, Tuple
+from typing import List
 
 from keppel.cleaning import process_text
 from keppel.utils import clip_overlap, compact_json, term_str
@@ -80,7 +79,7 @@ class Tracker:
             entries_dict = []
             for entry in self.entries:
                 entry = asdict(entry)
-                if type(entry["fonts"]) is dict:
+                if isinstance(dict, entry["fonts"]):
                     entry["fonts"] = [[[n, s], f] for [(n, s), f] in entry["fonts"].items()]
                 entry["fonts"] = sorted(entry["fonts"], key=lambda x: x[1], reverse=True)
                 # print(entry["fonts"])

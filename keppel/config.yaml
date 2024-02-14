@@ -43,6 +43,22 @@ books:
     fonts: {head: [[ Univers, 18.0 ]], text: [[ Garamond, 10.0 ], [Univers, 9.5]], bad: [[CFWYQT+Univers, 8.0]]}
   Arthritis in B&W 3e:
     chapters: "DIR"
+  Cardiac Imaging Requisites 4e:
+    chapters: "DIR"
+  Duke Review of MRI Principles:
+    chapters: "DIR"
+  Emergency Radiology Requisites 2e:
+    chapters: "DIR"
+  Fundamentals of Body CT 4e:
+    chapters: "DIR"
+  Gastrointestinal Requisites 4e:
+    chapters: "DIR"
+  Pediatric Imaging Fundamentals:
+    chapters: "DIR"
+  Ultrasound Requisites 3e:
+    chapters: "DIR"
+  Vascular and Interventional Radiology Requisites 2e:
+    chapters: "DIR"
   # ===
   test:
     chapters: [-2, -2]

@@ -1,11 +1,9 @@
 import re
-from collections import Counter
 from pathlib import Path
-from typing import Dict, List, Set, Tuple
+from typing import List
 
-from pdfplumber.page import Page
 
-round_to_nearest_k: callable = lambda number, k: round(number * k) / k
+round_to_nearest_k: callable = lambda number, k: round(number * k) / k 
 
 
 def term_str(s, terms=(".", "!", "?", ":")) -> bool:

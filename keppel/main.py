@@ -3,11 +3,10 @@ import random
 import sys
 from collections import Counter
 from pathlib import Path
-from typing import Dict, Iterable, List, Set, Tuple
+from typing import List
 
 import fire
 import layoutparser as lp
-import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import pdfplumber
 from layoutparser.elements import Interval, Layout, TextBlock
@@ -409,8 +408,20 @@ class Parser(object):
                 )
                 try:
                     tracker.add_entry(pg_num, label_type, label_num, txt, fonts)
-                except EarlyExitException as e:
+                except EarlyExitException:
                     pass
+
+            # # todo jank -- should be in tracker?
+            # entries = tracker.entries
+            # entries_post_proc = []
+            # for i,ent_i in enumerate(entries[:-2]):
+            #     j,k=i+1,i+2
+            #     ent_j,ent_k = entries[j],entries[k]
+            #     if ent_i.label_type == "Text" and not term_str(ent_i.txt) \
+            #         and ent_j.label_type == ""
+
+            # tracker.entries = entries_post_proc
+
             tracker.to_file(self.cleandir / f"{i}.json")
 
 
@@ -431,7 +442,7 @@ if __name__ == "__main__":
         # fname = "NM - Mettler - Nuclear Medicine (6e).pdf"
         # fname = "Peds - Donnelly - Pediatric Imaging The Fundamentals.pdf"
         # === Directories
-        fname = "Arthritis in B&W 3e"
+        # fname = "Arthritis in B&W 3e"
         # === Poor scans:
         # fname = "General - Mandell - Core Radiology (1e).pdf"   # poorly parsed
         # fname = "General - Weissleder - Primer of Diagnostic Imaging (5e).pdf"
@@ -441,12 +452,21 @@ if __name__ == "__main__":
         # ===
         # fname = "test"
 
-        fname = Path("scrape/" + fname)
-        print(str(fname))
+        for fname in ["Cardiac Imaging Requisites 4e",
+            "Duke Review of MRI Principles",
+            "Emergency Radiology Requisites 2e",
+            "Fundamentals of Body CT 4e",
+            "Gastrointestinal Requisites 4e",
+            "Pediatric Imaging Fundamentals",
+            "Ultrasound Requisites 3e",
+            "Vascular and Interventional Radiology Requisites 2e"]:
 
-        parser = Parser(fname)
+            fname = Path("scrape/" + fname)
+            print(str(fname))
 
-        # parser.determine_co(co_base=0.7)
-        parser.extract_raw()
-        # parser.determine_fonts()
-        # parser.clean_raw()
+            parser = Parser(fname)
+
+            # parser.determine_co(co_base=0.7)
+            parser.extract_raw()
+            # parser.determine_fonts()
+            # parser.clean_raw()
