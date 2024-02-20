@@ -63,12 +63,14 @@ books:
   test:
     chapters: [-2, -2]
     fonts: {head: [[ HeadFont, 2.0 ]], text: [[ TextFont, 1.0 ]], bad: [[ BadFont, 3.0 ]]}
+  output.pdf:
+    chapters: [0, 1]
 base:
   detectron:
     model_name: "lp://PubLayNet/mask_rcnn_X_101_32x8d_FPN_3x/config"
     score_co: 0.70
     box_pad: 0.010
-    resolution: 150
+    resolution: 150 # 300
   tokens:
     fontbreak: '[FONTBREAK]'
     label_end: '[LABEL_END]'

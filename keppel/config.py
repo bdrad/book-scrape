@@ -54,7 +54,7 @@ class BookConfig(Config):
 
     @staticmethod
     def _parse_chapters(chapters):
-        if isinstance(str, chapters) and chapters.upper() == "DIR":
+        if isinstance(chapters, str) and chapters.upper() == "DIR":
             return None
         out = []
         for i, j in zip(chapters, chapters[1:]):
