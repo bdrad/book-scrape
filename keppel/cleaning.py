@@ -1,4 +1,5 @@
 import re
+from collections import defaultdict
 from typing import List, Set, Tuple
 
 import nltk
@@ -33,6 +34,21 @@ hyphen_corpus = set(filter(lambda w: "-" in w, wordnet.words()))
 hyphen_corpus = hyphen_corpus.union(hyphen_extras)
 
 
+def reduce_sort_fonts(
+    fonts: List[Tuple[Tuple[str, float], int]],
+) -> List[Tuple[Tuple[str, float], int]]:
+    """
+    merge entries with same font name and size, then sort by frequency
+    """
+    font_dict = defaultdict(int)
+    for (font, size), freq in fonts:
+        font_dict[(font, size)] += freq
+    return [
+        ((font, size), freq)
+        for (font, size), freq in sorted(font_dict.items(), key=lambda x: x[1], reverse=True)
+    ]
+
+
 def clean_fontstr(font: str):
     # FFIOJI+Univers-CondensedBold => Univers
     # UMTALE+JansonText-Roman => JansonText
@@ -40,10 +56,22 @@ def clean_fontstr(font: str):
     return re.sub(inner_font, r"\2", font) if re.search(inner_font, font) else font
 
 
-def clean_fonts(fonts: List[Tuple[str, float]]) -> Set[Tuple[str, float]]:
+def clean_fonts(
+    fonts: List[Tuple[Tuple[str, float], int]], round_to_k: int = 0
+) -> List[Tuple[Tuple[str, float], int]]:
     if not fonts:
         return fonts
-    return set([(clean_fontstr(f), round_to_nearest_k(s, k=4)) for f, s in fonts if f])
+    fonts = [
+        (
+            (
+                clean_fontstr(fname),
+                (round_to_nearest_k(size, round_to_k) if round_to_k > 0 else size),
+            ),
+            freq,
+        )
+        for [fname, size], freq in fonts
+    ]
+    return reduce_sort_fonts(fonts)
 
 
 def dehyphenate_string(input_string, pg_num=None):
@@ -186,11 +214,11 @@ if __name__ == "__main__":
     print("All tests passed.")
 
     fonts = [
-        ["UMTALE+JansonText-Roman", 10.0],
-        ["PSFMKZ+JansonText-Italic", 10.0],
-        ["FFIOJI+Univers-CondensedBold", 10.0],
-        ["UMTALE+JansonText-Roman", 12.0],
-        ["FUCJOE+JansonText-Roman-SC800", 27.0],
+        (("UMTALE+JansonText-Roman", 10.0), 123),
+        (("PSFMKZ+JansonText-Italic", 10.0), 123),
+        (("FFIOJI+Univers-CondensedBold", 10.0), 123),
+        (("UMTALE+JansonText-Roman", 12.0), 123),
+        (("FUCJOE+JansonText-Roman-SC800", 27.0), 123),
     ]
     print(clean_fonts(fonts))
 

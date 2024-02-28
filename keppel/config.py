@@ -1,7 +1,6 @@
 from collections import defaultdict
 from pathlib import Path
 
-# import yaml
 from ruamel.yaml import YAML
 
 from keppel.utils import merge_dicts

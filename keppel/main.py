@@ -1,11 +1,12 @@
 import json
 import logging
+import os
 import random
 import sys
 from collections import Counter
-from dataclasses import InitVar, dataclass, field
+from operator import itemgetter
 from pathlib import Path
-from typing import List, Set, Tuple
+from typing import Iterator, List, Set, Tuple
 
 import cv2
 import fire
@@ -18,57 +19,16 @@ from tqdm import tqdm
 
 from keppel.cleaning import clean_fontstr
 from keppel.config import BookConfig
-from keppel.tracker import EarlyExitException, JoinTracker, PreTracker, TrackerEntry
+from keppel.tracker import EarlyExitException, JoinTracker, Label, LabelTypes, Tracker
 from keppel.utils import round_to_nearest_k
 
 logging.disable(logging.INFO)
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "1"
 
 DATA = Path("scrape")
 assert DATA.is_dir()
 
 FONT_KINDS = ("text", "head", "bad")
-
-Label_types = {
-    "title",
-    "figure",
-    "plain text",
-    "header",
-    "page number",
-    "footnote",
-    "footer",
-    "table",
-    "table caption",
-    "figure caption",
-    "equation",
-    "full column",
-    "sub column",
-}
-label_type_ignore = {"page number", "equation"}
-label_type_text = {"title", "plain text", "header", "footnote", "footer"}
-label_type_caption = {"figure caption", "table caption"}
-label_type_img = {"figure", "table"}
-
-
-@dataclass
-class Label:
-    id: int
-    label_type: str
-    raw_bbox: Tuple[float, float, float, float]
-    txt: str = field(default=None)
-    fonts: List[Tuple[Tuple[str, float], int]] = field(default=None)
-    pg_bbox: Tuple[float, float, float, float] = field(default=None)
-
-    def calc_pg_bbox(self, w_im, h_im, w_pg, h_pg, pad=0.01) -> Tuple[float, float, float, float]:
-        x0, y0, x1, y1 = self.raw_bbox
-        w_ratio, h_ratio = w_pg / w_im, h_pg / h_im
-        x0, x1 = x0 * w_ratio, x1 * w_ratio
-        y0, y1 = y0 * h_ratio, y1 * h_ratio
-        pW = pad * w_im / 8
-        pH = pad * h_im / 16
-        x0, x1 = x0 - pW, x1 + pW
-        y0, y1 = y0 - pH, y1 + pH
-        self.pg_bbox = (x0, y0, x1, y1)
-        return self.pg_bbox
 
 
 def extract_fonts(pg: Page, round_k=4, clean=False) -> List[Tuple[Tuple[str, float], int]]:
@@ -85,12 +45,12 @@ def extract_fonts(pg: Page, round_k=4, clean=False) -> List[Tuple[Tuple[str, flo
 
 
 class Parser(object):
-    def __init__(self, fname: str) -> None:
+    def __init__(self, fname: str, start_ch=1) -> None:
         self.fname = Path(fname)
         assert self.fname.exists(), f"{fname} not found"
 
+        self.start_ch = start_ch
         self.__pdf = None  # lazy load
-
         self.outdir = Path("scrape_out")
         self.outdir /= self.fname.stem
         self.rawdir = self.outdir / "raw"
@@ -119,7 +79,7 @@ class Parser(object):
         if self.__pdf is None:
             laparams = dict(detect_vertical=False)
             # laparams=dict(detect_vertical=False, word_margin=0.08)    # this doesn't cause any difference?
-            self.__pdf = pdfplumber.open(fname, laparams=laparams).pages
+            self.__pdf = pdfplumber.open(self.fname, laparams=laparams).pages
         return self.__pdf
 
     @property
@@ -128,6 +88,7 @@ class Parser(object):
             from docxchain.pipelines.document_structurization import DocumentStructurization
 
             # print(f"Loading model {self._model_name} with score cutoff {self._model_co}")
+            print("Loading DocXLayout model")
             self.__model = DocumentStructurization(
                 dict(
                     layout_analysis_configs=dict(
@@ -157,9 +118,9 @@ class Parser(object):
     # TODO search for missing text
     # * if last label figure and current is text
     def _get_labels(
-        self, im, page, return_split_idx=False, pad=0.01, model=None, layout=None
+        self, im, page: Page, return_split_idx=False, model=None, layout=None
     ) -> List[Label]:
-        if type(im) is PageImage:
+        if isinstance(im, PageImage):
             im = im.annotated.original
         elif isinstance(im, str):
             im = cv2.imread(im, cv2.IMREAD_COLOR)
@@ -169,63 +130,43 @@ class Parser(object):
 
         w_im, h_im = im.shape[1], im.shape[0]
         w_pg, h_pg = page.width, page.height
-        w_ratio, h_ratio = w_pg / w_im, h_pg / h_im
 
-        # if layout is None:
-        #     if model is None:
-        #         model = self.model
-        #     layout = model(im)
         layout = layout or (model or self.model)(im)
         # print(layout)
 
         out = []
         for category in layout:
-            idx, label_type, bbox = [
-                category[s] for s in ("category_index", "category_name", "region_poly")
-            ]
+            # idx, label_type, bbox = (category[s] for s in ("category_index", "category_name", "region_poly"))
+            idx, label_type, bbox = itemgetter("category_index", "category_name", "region_poly")(
+                category
+            )
             bbox = np.array(bbox).reshape(-1, 2)
             x0, y0, x1, y1 = bbox[:, 0].min(), bbox[:, 1].min(), bbox[:, 0].max(), bbox[:, 1].max()
             assert x0 < x1 and y0 < y1
             bbox = (x0, y0, x1, y1)
-            # x0, x1 = x0 * w_ratio, x1 * w_ratio
-            # y0, y1 = y0 * h_ratio, y1 * h_ratio
-            # pW = pad * w_im / 8
-            # pH = pad * h_im / 16
-            # x0, x1 = x0 - pW, x1 + pW
-            # y0, y1 = y0 - pH, y1 + pH
-            # bbox = (x0, y0, x1, y1)
-            # area = page.within_bbox((x0, y0, x1, y1), strict=False, relative=True)
-            # # if type is text:
-            # txt = area.extract_text()
-            # # elif type is figure/table
-            # # area.to_image(resolution=300).original.save(f"testframe-{idx}.png")
 
-            label = Label(idx, label_type, bbox)
+            label = Label(page.page_number, idx, label_type, bbox)
+            label.calc_bbox_pad(w_im, h_im, w_pg, h_pg)
             out.append(label)
             # print('===\n',idx, label_type, txt)
             # category['text_list']
 
-        # TODO add to cfg one/two column choice and implement here
-        def _sort_labels(labels: List[Label], left_pad=0.98) -> List[Label]:
-            left_width = left_pad * w_im / 2
-            left_blocks = [l for l in labels if l.raw_bbox[0] < left_width]
-            right_blocks = [b for b in labels if b not in left_blocks]  # conjugates
+        def _sort_labels(labels: List[Label], left_scale=0.98) -> List[Label]:
+            assert 0 <= left_scale <= 1
+            sort_key = lambda b: b.bbox_raw[1]  # sort by top-most y
+            labels = sorted(labels, key=sort_key)
 
-            sort_key = lambda b: b.raw_bbox[1]  # sort by top-most y
-            left_blocks = sorted(left_blocks, key=sort_key)
-            right_blocks = sorted(right_blocks, key=sort_key)
-
+            left_width = left_scale * w_im / 2
+            left_blocks = [l for l in labels if l.bbox_raw[0] < left_width]
+            right_blocks = [r for r in labels if r not in left_blocks]  # conjugates
             blocks = left_blocks + right_blocks
 
             for i, b in enumerate(blocks):
                 b.id = i
-
                 # for c in blocks[:i] + blocks[i + 1 :]:  # get all but b
                 #     if b.is_in(c, center=True):
                 #         # later on, parent used as idicator to skip
                 #         b = b.set(parent=c.id)
-            # print([(b['label_type'],b['bbox'][:-2]) for b in left_blocks])
-            # print([(b['label_type'],b['bbox'][:-2]) for b in right_blocks])
 
             if return_split_idx:
                 return blocks, len(left_blocks)
@@ -289,130 +230,54 @@ class Parser(object):
         #     fig.savefig(self.outdir / "co.png", bbox_inches="tight", dpi=300, pad_inches=0)
         raise NotImplementedError
 
-    def _iter_ch_pages(self):
+    def _iter_ch_pages(self) -> Iterator:
         """
         First yields the number of chapters, then yields the pages for each chapter
         """
         if self.cfg.chapters is None:
-            # get pdf files in dir
             pdfs = sorted(self.fname.glob("*.pdf"))
+            pdfs = pdfs[self.start_ch - 1 :]
             yield len(pdfs)
             for pdf in pdfs:
                 with pdfplumber.open(pdf) as p:
                     yield p.pages
         else:
             yield len(self.cfg.chapters)
-            for start, end in self.cfg.chapters:
+            chapters = self.cfg.chapters[self.start_ch - 1 :]
+            for start, end in chapters:
                 yield self.pdf[start:end]
 
     def extract_raw(self, extract_figs=True):
-        # chapters = self.cfg.chapters
-        # for ch_i, ch in enumerate(chapters, 1):
-        #     print(f"Processing ch{ch_i}/{len(chapters)}")
-        #     start, end = ch
-        #     pages: List[Page] = self.pdf[start:end]  # todo make fctn
-
         itr = self._iter_ch_pages()
         num_chapters = next(itr)
-        for ch_i, pages in enumerate(itr, 1):
-            print(f"Processing ch{ch_i}/{num_chapters}")
-
-            pretracker = PreTracker()
-
-            for pg in tqdm(pages):
+        for ch_i, pages in enumerate(itr, self.start_ch):
+            tpages = tqdm(pages)
+            tpages.set_postfix_str(f"ch{ch_i}/{num_chapters}")
+            tracker = Tracker()
+            for pg in tpages:
                 pg_num = pg.page_number
                 im = pg.to_image(resolution=self.resolution).annotated
                 w_im, h_im = im.size
                 w_pg, h_pg = pg.width, pg.height
-                # w_ratio, h_ratio = w_pg / w_im, h_pg / h_im
-
-                if self.cfg.use_pdfplumber:
-                    kind = None  # whole point of using pdfplumber is because the model cannot accurately recognize/characterize the kind of texts
-
-                    assert pg.textboxhorizontals, "Pass `laparams={...}` when opening the PDF file"
-                    labels = pg.textboxhorizontals  # TODO sort these as done in _get_labels
-                    for label_num, label in enumerate(labels):
-                        x0, y0, x1, y1 = label["x0"], label["y0"], label["x1"], label["y1"]
-                        assert x0 < x1 and y0 < y1
-                        x0, y0, x1, y1 = (x0, pg.height - y1, x1, pg.height - y0)
-                        # TODO padding
-                        # x0, x1 = x0 * (1 + self.pad), x1 * (1 - self.pad)
-                        # y0, y1 = y0 * (1 + self.pad), y1 * (1 - self.pad)
-
-                        # TODO restructure so we can extract fig if using pdfplumber
-
-                        area = pg.within_bbox((x0, y0, x1, y1), strict=False, relative=True)
-                        # txt = label["text"]   # buggy whitespace (e.g. uses \t rather than spaces)
-                        txt = area.extract_text()
-                        # print(len(txt), len(label["text"]))
-                        if not txt:
-                            # TODO occassionally we get here yet have non-empty label["text"] -- how to handle?
-                            continue
-
-                        fonts = extract_fonts(area)
-
-                        pretracker.add_entry(pg_num, kind, label_num, txt, fonts)
-                    continue
 
                 labels: List[Label] = self._get_labels(im, pg)
-                last_entry: TrackerEntry = None
-                last_y1: float = 0.0
                 for label in labels:
-                    # kind = label["label_type"]
-                    # if label.parent is not None:
-                    #     print(f"%%% Text block {label.id} is inside {label.parent} -- skipping")
-                    #     continue
-                    # pad_x, pad_y = self.pad * w_im, self.pad * h_im
-                    # label = label.pad(left=pad_x, right=pad_x, top=pad_y, bottom=pad_y)
-                    x0, y0, x1, y1 = label.calc_pg_bbox(w_im, h_im, w_pg, h_pg)
-                    assert x0 < x1 and y0 < y1
+                    bb = label.calc_bbox_pad(w_im, h_im, w_pg, h_pg)
+                    area = pg.within_bbox(bb, strict=False)
 
-                    if extract_figs and label.label_type in label_type_img:
-                        pg_crop = pg.crop((x0, y0, x1, y1), strict=False)
-                        img = pg_crop.to_image(resolution=self.resolution)
+                    if label.label_type != LabelTypes.FIG:
+                        label.fonts = extract_fonts(area)
+                        label.txt = area.extract_text()
+                    elif extract_figs and label.label_type in LabelTypes.S_IMG:
+                        # pg_crop = pg.crop(bb, strict=False)
+                        # img = pg_crop.to_image(resolution=self.resolution)
+                        img = area.to_image(resolution=self.resolution)
                         out_dir = Path(self.img_dir / f"{ch_i}")
                         out_dir.mkdir(exist_ok=True)
                         img.save(out_dir / f"{pg_num}-{label.id}.png")
 
-                    area = pg.within_bbox((x0, y0, x1, y1), strict=False)
-                    
-                    if label.label_type not in label_type_img:
-                        label.fonts = extract_fonts(area)
-                        label.txt = area.extract_text()
-
-                    if extract_figs and (
-                        (label.label_type in label_type_caption)
-                        or (
-                            last_entry
-                            and last_entry.label_type
-                            in label_type_img  # todo make categorization a Label class property
-                            and label.label_type in label_type_text
-                            and y0 - last_y1 < 0.15 * h_im
-                            and (
-                                label.txt.startswith("Fig") or label.txt.startswith("FIG")
-                            )  # todo regex, skip non-alpha beginning
-                        )
-                    ):
-                        if not last_entry:
-                            last_id = "X-Y"
-                        elif last_entry.label_type not in label_type_img:
-                            last_id = f"{pg_num}-Y"
-                        else:
-                            last_id = f"{last_entry.pgs[0]}-{last_entry.labels[0]}"
-
-                        label.label_type = "FigureCaption_" + last_id
-
-                        out_dir = Path(self.img_dir / f"{ch_i}")
-                        out_dir.mkdir(exist_ok=True)
-                        with open(out_dir / f"{last_id}.txt", "w") as f:
-                            f.write(label.txt)
-
-                    last_entry = pretracker.add_entry(
-                        pg_num, label.label_type, label.id, label.txt, label.fonts
-                    )
-                    last_y1 = y1
-
-            pretracker.to_file(self.rawdir / f"{ch_i}.json")
+                    tracker.add_label(label)
+                    tracker.to_file(self.rawdir / f"{ch_i}.json")
 
     # TODO FigureCaption support -- break up bad into table / figurecaption / figure
     def determine_fonts(self, display=True, cutoff=0.10):
@@ -490,37 +355,22 @@ class Parser(object):
         self.cfg.write_fonts(fonts)
 
     def clean_raw(self):
-        for i in tqdm(range(1, len(self.cfg.chapters))):
-            with open(self.rawdir / f"{i}.json", "r", encoding="utf8") as f:
-                data = json.load(f)
-
+        for ch_i in tqdm(range(self.start_ch, len(self.cfg.chapters))):
             tracker = JoinTracker(self.cfg)
+            with open(self.rawdir / f"{ch_i}.json", "r", encoding="utf8") as f:
+                data = json.load(f)
+                for entry in data:
+                    pgs, label_type, txt, fonts, bbox_raw, bbox_pad, id = itemgetter(
+                        "pgs", "label_type", "txt", "fonts", "bbox_raw", "bbox_pad", "id"
+                    )(entry)
+                    label = Label(pgs[0], id, label_type, bbox_raw, txt, fonts)
+                    # label.bbox_pad = bbox_pad
+                    try:
+                        tracker.add_label(label)
+                    except EarlyExitException:
+                        break
 
-            for entry in data:
-                txt, pg_num, label_type, label_num, fonts = (
-                    entry["txt"],
-                    entry["pgs"][0],
-                    entry["label_type"],
-                    entry["labels"][0],
-                    entry["fonts"],
-                )
-                try:
-                    tracker.add_entry(pg_num, label_type, label_num, txt, fonts)
-                except EarlyExitException:
-                    pass
-
-            # # todo jank -- should be in tracker?
-            # entries = tracker.entries
-            # entries_post_proc = []
-            # for i,ent_i in enumerate(entries[:-2]):
-            #     j,k=i+1,i+2
-            #     ent_j,ent_k = entries[j],entries[k]
-            #     if ent_i.label_type == "Text" and not term_str(ent_i.txt) \
-            #         and ent_j.label_type == ""
-
-            # tracker.entries = entries_post_proc
-
-            tracker.to_file(self.cleandir / f"{i}.json")
+            tracker.to_file(self.cleandir / f"{ch_i}.json")
 
 
 if __name__ == "__main__":
@@ -563,9 +413,9 @@ if __name__ == "__main__":
         fname = Path("scrape/" + fname)
         print(str(fname))
 
-        parser = Parser(fname)
+        parser = Parser(fname, start_ch=1)
 
         # parser.determine_co(co_base=0.7)
-        parser.extract_raw()
+        # parser.extract_raw()
         # parser.determine_fonts()
-        # parser.clean_raw()
+        parser.clean_raw()
