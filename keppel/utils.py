@@ -1,9 +1,11 @@
+import json
 import re
 from pathlib import Path
 from typing import List
 
+import numpy as np
 
-round_to_nearest_k: callable = lambda number, k: round(number * k) / k 
+round_to_nearest_k: callable = lambda number, k: round(number * k) / k
 
 
 def term_str(s, terms=(".", "!", "?", ":")) -> bool:
@@ -68,3 +70,11 @@ def merge_dicts(base_data: dict, new_data: dict) -> dict:
         else:
             out[k] = v
     return out
+
+
+class Encoder(json.JSONEncoder):
+    # Source: https://stackoverflow.com/a/57915246/7833617
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        return super(Encoder, self).default(obj)

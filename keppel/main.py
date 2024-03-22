@@ -19,11 +19,11 @@ from tqdm import tqdm
 
 from keppel.cleaning import clean_fontstr
 from keppel.config import BookConfig
-from keppel.tracker import EarlyExitException, JoinTracker, Label, LabelTypes, Tracker
+from keppel.tracker import EarlyExitException, JoinTracker, Label, LabelTypes, Tracker, FigTracker
 from keppel.utils import round_to_nearest_k
 
 logging.disable(logging.INFO)
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "1"
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "1"  # modelhub torch logs
 
 DATA = Path("scrape")
 assert DATA.is_dir()
@@ -45,13 +45,15 @@ def extract_fonts(pg: Page, round_k=4, clean=False) -> List[Tuple[Tuple[str, flo
 
 
 class Parser(object):
-    def __init__(self, fname: str, start_ch=1) -> None:
+    def __init__(self, fname: str, start_ch=1, device=0, outdir: Path = None) -> None:
         self.fname = Path(fname)
-        assert self.fname.exists(), f"{fname} not found"
-
-        self.start_ch = start_ch
         self.__pdf = None  # lazy load
-        self.outdir = Path("scrape_out")
+        assert self.fname.exists(), f"{fname} not found"
+        self.start_ch = start_ch
+        self.device = device
+
+        # TODO change out base to shared drive
+        self.outdir = outdir or Path("scrape_out")
         self.outdir /= self.fname.stem
         self.rawdir = self.outdir / "raw"
         self.cleandir = self.outdir / "clean"
@@ -60,18 +62,8 @@ class Parser(object):
             dir.mkdir(exist_ok=True)
 
         self.cfg: BookConfig = BookConfig(fname)
+        self.resolution = int(self.cfg.data["im_resolution"])
 
-        # https://layout-parser.readthedocs.io/en/latest/notes/modelzoo.html
-        cfg_model: dict = self.cfg.data["detectron"]
-        # self._model_name = str(cfg_model["model_name"])
-        # assert "PubLayNet" in self._model_name
-        # self._model_co = float(cfg_model["score_co"])
-        # assert 0 <= self._model_co <= 1
-        self.pad = float(cfg_model["box_pad"])
-        assert 0 <= self.pad < 1
-        self.resolution = int(cfg_model["resolution"])
-
-        # self._label_map = {0: "Text", 1: "Title", 2: "List", 3: "Table", 4: "Figure"}
         self.__model = None  # lazy load
 
     @property
@@ -85,41 +77,40 @@ class Parser(object):
     @property
     def model(self):
         if self.__model is None:
-            from docxchain.pipelines.document_structurization import DocumentStructurization
-
-            # print(f"Loading model {self._model_name} with score cutoff {self._model_co}")
             print("Loading DocXLayout model")
-            self.__model = DocumentStructurization(
-                dict(
-                    layout_analysis_configs=dict(
-                        from_modelscope_flag=False,
-                        model_path="/home/DocXLayout_231012.pth",
-                    ),
-                    text_detection_configs=dict(
-                        from_modelscope_flag=True,
-                        model_path="damo/cv_resnet18_ocr-detection-line-level_damo",
-                    ),
-                    text_recognition_configs=dict(
-                        from_modelscope_flag=True,
-                        model_path="damo/cv_convnextTiny_ocr-recognition-document_damo",  # alternatives: 'damo/cv_convnextTiny_ocr-recognition-scene_damo', 'damo/cv_convnextTiny_ocr-recognition-general_damo', 'damo/cv_convnextTiny_ocr-recognition-handwritten_damo'
-                    ),
-                    formula_recognition_configs=dict(
-                        from_modelscope_flag=False,
-                        image_resizer_path="/home/LaTeX-OCR_image_resizer.onnx",
-                        encoder_path="/home/LaTeX-OCR_encoder.onnx",
-                        decoder_path="/home/LaTeX-OCR_decoder.onnx",
-                        tokenizer_json="/home/LaTeX-OCR_tokenizer.json",
-                    ),
-                )
+            from docxchain.pipelines.document_structurization import (
+                DocumentStructurization,
             )
+
+            model_cfg = dict(
+                layout_analysis_configs=dict(
+                    from_modelscope_flag=False,
+                    model_path="/home/DocXLayout_231012.pth",
+                ),
+                text_detection_configs=dict(
+                    from_modelscope_flag=True,
+                    model_path="damo/cv_resnet18_ocr-detection-line-level_damo",
+                ),
+                text_recognition_configs=dict(
+                    from_modelscope_flag=True,
+                    model_path="damo/cv_convnextTiny_ocr-recognition-document_damo",
+                    # 'damo/cv_convnextTiny_ocr-recognition-scene_damo',
+                    # 'damo/cv_convnextTiny_ocr-recognition-general_damo',
+                    # 'damo/cv_convnextTiny_ocr-recognition-handwritten_damo'
+                ),
+                formula_recognition_configs=dict(
+                    from_modelscope_flag=False,
+                    image_resizer_path="/home/LaTeX-OCR_image_resizer.onnx",
+                    encoder_path="/home/LaTeX-OCR_encoder.onnx",
+                    decoder_path="/home/LaTeX-OCR_decoder.onnx",
+                    tokenizer_json="/home/LaTeX-OCR_tokenizer.json",
+                ),
+            )
+
+            self.__model = DocumentStructurization(model_cfg, device=self.device)
         return self.__model
 
-    # TODO renew overlap-checking code for new model
-    # TODO search for missing text
-    # * if last label figure and current is text
-    def _get_labels(
-        self, im, page: Page, return_split_idx=False, model=None, layout=None
-    ) -> List[Label]:
+    def eval_model(self, im, model=None):
         if isinstance(im, PageImage):
             im = im.annotated.original
         elif isinstance(im, str):
@@ -127,11 +118,17 @@ class Parser(object):
         if type(im) is not np.ndarray:
             im = cv2.cvtColor(np.array(im), cv2.COLOR_RGB2BGR)
         assert type(im) is np.ndarray
+        return (model or self.model)(im)
 
+    # TODO search for missing text
+    # * if last label figure and current is text
+    def _get_labels(
+        self, im, page: Page, return_split_idx=False, model=None, layout=None
+    ) -> List[Label]:
         w_im, h_im = im.shape[1], im.shape[0]
         w_pg, h_pg = page.width, page.height
 
-        layout = layout or (model or self.model)(im)
+        layout = layout or self.eval_model(im, model)
         # print(layout)
 
         out = []
@@ -141,7 +138,12 @@ class Parser(object):
                 category
             )
             bbox = np.array(bbox).reshape(-1, 2)
-            x0, y0, x1, y1 = bbox[:, 0].min(), bbox[:, 1].min(), bbox[:, 0].max(), bbox[:, 1].max()
+            x0, y0, x1, y1 = (
+                bbox[:, 0].min(),
+                bbox[:, 1].min(),
+                bbox[:, 0].max(),
+                bbox[:, 1].max(),
+            )
             assert x0 < x1 and y0 < y1
             bbox = (x0, y0, x1, y1)
 
@@ -150,6 +152,11 @@ class Parser(object):
             out.append(label)
             # print('===\n',idx, label_type, txt)
             # category['text_list']
+
+        def _prune_overlap_labels(labels: List[Label]) -> List[Label]:
+            return [b for b in labels if not any(b.is_in(c) for c in labels)]
+
+        out = _prune_overlap_labels(out)
 
         def _sort_labels(labels: List[Label], left_scale=0.98) -> List[Label]:
             assert 0 <= left_scale <= 1
@@ -161,75 +168,40 @@ class Parser(object):
             right_blocks = [r for r in labels if r not in left_blocks]  # conjugates
             blocks = left_blocks + right_blocks
 
-            for i, b in enumerate(blocks):
-                b.id = i
-                # for c in blocks[:i] + blocks[i + 1 :]:  # get all but b
-                #     if b.is_in(c, center=True):
-                #         # later on, parent used as idicator to skip
-                #         b = b.set(parent=c.id)
-
             if return_split_idx:
                 return blocks, len(left_blocks)
             return blocks
 
         out = _sort_labels(out)
+
+        for i, b in enumerate(out):
+            b.id = i
+
         return out
 
-    def determine_co(self, co_base: float = None, co_delta: float = 0.05, co_n: int = 6):
-        #      assert (
-        #          self.cfg.use_pdfplumber is False
-        #      ), "Cannot map fonts to categories with pdfplumber (requires detectron model)"
-        #     possible_pages = range(self.cfg.chapters[0], self.cfg.chapters[-1])
-        #     random.seed(0)
-        #     pages = random.sample(possible_pages, 5)
+    def visualize(self, n: int = 6):
+        """
+        Visualize the layout parsing of n sampled pages
+        """
+        assert (
+            self.cfg.use_pdfplumber is False
+        ), "Cannot map fonts to categories with pdfplumber (requires detectron model)"
+        from docxchain.utilities.visualization import document_structurization_visualization
 
-        #     co_base = co_base or self.cfg["detectron"]["score_co"]
-        #     cutoffs = [
-        #         v
-        #         for i in range(-co_n // 2 + 1, co_n // 2 + 1)
-        #         if (0 <= (v := co_base + i * co_delta) <= 1)
-        #     ]
-        #     n = len(cutoffs)
+        possible_pages = range(self.cfg.chapters[0][0], self.cfg.chapters[-1][-1])
+        random.seed(0)
+        pages = random.sample(possible_pages, n)
 
-        #     imgs = [self.pdf[i].to_image(resolution=self.resolution).annotated for i in pages]
-        #     results = []
+        model = self.model
+        for p in tqdm(pages):
+            page = self.pdf[p]
+            im = page.to_image(resolution=self.resolution).annotated
+            im = cv2.cvtColor(np.array(im), cv2.COLOR_RGB2BGR)
+            res = self.eval_model(im, model)
+            output_image = document_structurization_visualization(res, im)
+            cv2.imwrite(str(self.outdir / f"layout_{p}.png"), output_image)
 
-        #     for co in tqdm(cutoffs):
-        #         tmp_model = lp.models.Detectron2LayoutModel(
-        #             self._model_name,
-        #             extra_config=["MODEL.ROI_HEADS.SCORE_THRESH_TEST", co],
-        #             label_map=self._label_map,
-        #         )
-        #         outs = []
-        #         for im in imgs:
-        #             sorted_boxes = parser._get_labels(im, model=tmp_model)
-        #             o = lp.draw_box(im, sorted_boxes, box_width=3, show_element_id=True)
-        #             outs.append(o)
-        #         del tmp_model
-        #         results.append(outs)
-
-        #     # plt.switch_backend("TkAgg")
-        #     w, h = imgs[0].size
-        #     w, h = [4 * k / w for k in (w, h)]
-        #     fig, axs = plt.subplots(len(pages), n, figsize=(n * w, len(pages) * h))
-        #     fig.tight_layout(pad=0.0)
-        #     # gs = gridspec.GridSpec(len(pages), n, figure=fig)
-        #     # gs.update(wspace=0.025, hspace=0.025)
-        #     for j, (co, outs) in enumerate(zip(cutoffs, results)):
-        #         for i, o in enumerate(outs):
-        #             if axs.ndim == 1:
-        #                 coord = (i,)
-        #             else:
-        #                 coord = (i, j)
-        #             axs[*coord].imshow(o)
-        #             axs[*coord].axis("off")
-        #             if i == 0:
-        #                 axs[*coord].set_title(f"co={co:.3f}")
-        #     # plt.show()
-        #     plt.subplots_adjust(wspace=0, hspace=0)
-        #     fig.savefig(self.outdir / "co.png", bbox_inches="tight", dpi=300, pad_inches=0)
-        raise NotImplementedError
-
+    # TODO if just some of the chapters are done, don't re-do them
     def _iter_ch_pages(self) -> Iterator:
         """
         First yields the number of chapters, then yields the pages for each chapter
@@ -254,6 +226,7 @@ class Parser(object):
             tpages = tqdm(pages)
             tpages.set_postfix_str(f"ch{ch_i}/{num_chapters}")
             tracker = Tracker()
+            jtracker = JoinTracker(self.cfg)
             for pg in tpages:
                 pg_num = pg.page_number
                 im = pg.to_image(resolution=self.resolution).annotated
@@ -277,7 +250,9 @@ class Parser(object):
                         img.save(out_dir / f"{pg_num}-{label.id}.png")
 
                     tracker.add_label(label)
-                    tracker.to_file(self.rawdir / f"{ch_i}.json")
+                    jtracker.add_label(label)
+            tracker.to_file(self.rawdir / f"{ch_i}.json")
+            jtracker.to_file(self.cleandir / f"{ch_i}.json")
 
     # TODO FigureCaption support -- break up bad into table / figurecaption / figure
     def determine_fonts(self, display=True, cutoff=0.10):
@@ -356,21 +331,13 @@ class Parser(object):
 
     def clean_raw(self):
         for ch_i in tqdm(range(self.start_ch, len(self.cfg.chapters))):
-            tracker = JoinTracker(self.cfg)
-            with open(self.rawdir / f"{ch_i}.json", "r", encoding="utf8") as f:
-                data = json.load(f)
-                for entry in data:
-                    pgs, label_type, txt, fonts, bbox_raw, bbox_pad, id = itemgetter(
-                        "pgs", "label_type", "txt", "fonts", "bbox_raw", "bbox_pad", "id"
-                    )(entry)
-                    label = Label(pgs[0], id, label_type, bbox_raw, txt, fonts)
-                    # label.bbox_pad = bbox_pad
-                    try:
-                        tracker.add_label(label)
-                    except EarlyExitException:
-                        break
+            jtracker = JoinTracker(self.cfg, path=self.rawdir / f"{ch_i}.json")
+            ...  # TODO
+            jtracker.to_file(self.cleandir / f"{ch_i}.json")
 
-            tracker.to_file(self.cleandir / f"{ch_i}.json")
+    def figure_raw(self):
+        for ch_i in tqdm(range(self.start_ch, len(self.cfg.chapters))):
+            FigTracker(self.cfg, self.rawdir / f"{ch_i}.json", process=True)
 
 
 if __name__ == "__main__":
@@ -391,31 +358,49 @@ if __name__ == "__main__":
         # fname = "Peds - Donnelly - Pediatric Imaging The Fundamentals.pdf"
         # === Directories
         # fname = "Arthritis in B&W 3e"
+        # fname = "Cardiac Imaging Requisites 4e"
+        # fname = "Duke Review of MRI Principles"
+        # fname = "Emergency Radiology Requisites 2e"
+        # fname = "Fundamentals of Body CT 4e".pdf
+        # fname = "Gastrointestinal Requisites 4e"
+        # fname = "Pediatric Imaging Fundamentals"
+        # fname = "Ultrasound Requisites 3e"
+        # fname = "Vascular and Interventional Radiology Requisites 2e"
         # === Poor scans:
         # fname = "General - Mandell - Core Radiology (1e).pdf"   # poorly parsed
         # fname = "General - Weissleder - Primer of Diagnostic Imaging (5e).pdf"
         # === Buggy cases
-        # fname = "General - Brant _ Helms - Fundamentals of Diagnostic Radiology (4e).pdf"  # !crashed
+        # fname = "General - Brant & Helms - Fundamentals of Diagnostic Radiology (4e).pdf"  # !crashed
         # fname = "EM - Raby - Accident & Emergency Radiology (3e).pdf"  # simply doesn't load??
         # ===
         # fname = "test"
         # fname = "output.pdf"
+        # ===
+        # fname = Path("scrape/" + fname)
+        # print(str(fname))
 
-        # for fname in ["Cardiac Imaging Requisites 4e",
-        #     "Duke Review of MRI Principles",
-        #     "Emergency Radiology Requisites 2e",
-        #     "Fundamentals of Body CT 4e",
-        #     "Gastrointestinal Requisites 4e",
-        #     "Pediatric Imaging Fundamentals",
-        #     "Ultrasound Requisites 3e",
-        #     "Vascular and Interventional Radiology Requisites 2e"]:
+        # parser = Parser(fname, start_ch=1)
+        # # parser.determine_co(co_base=0.7)
+        # # parser.extract_raw()
+        # # parser.determine_fonts()
+        # parser.clean_raw()
 
-        fname = Path("scrape/" + fname)
-        print(str(fname))
+        for fname in [
+            "Chest - Webb - Fundamentals of Body CT (4e).pdf",
+            # "Chest - Elicker - HRCT of the Lungs 2e.pdf",
+            # "US - Ultrasound Requisites (3e).pdf",
 
-        parser = Parser(fname, start_ch=1)
-
-        # parser.determine_co(co_base=0.7)
-        # parser.extract_raw()
-        # parser.determine_fonts()
-        parser.clean_raw()
+            # "General - Brant & Helms - Fundamentals of Diagnostic Radiology (4e).pdf", # start ch12
+            # "Breast - ACR - BIRADS_ATLAS (2013).pdf",
+            # "MSK - Greenspan - Orthopedic Imaging (6e).pdf",
+            ]:
+            parser = Parser(
+                fname="scrape/"+fname,
+                start_ch=1,
+                device=1,
+                outdir=Path("./scrape_out")
+                # outdir=Path("/mnt/sohn2022/Vogel/scrape_out")
+            )
+            parser.visualize(n=3)
+            # parser.figure_raw()
+            # parser.clean_raw()
